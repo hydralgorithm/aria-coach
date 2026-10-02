@@ -2,3 +2,7 @@
 .venv/
 __pycache__/
 *.wav
+
+# espeak-ng-loader unpacks espeak-ng.dll into a temp dir in the CWD on start
+tmp*/
+static/

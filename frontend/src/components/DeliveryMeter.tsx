@@ -83,8 +83,8 @@ export default function DeliveryMeter({
       <div className="space-y-2 px-3 py-2.5">
         <Gauge
           icon={<Eye className="size-3" />}
-          label="eye contact"
-          value={metrics.eyeContact}
+          label="engagement"
+          value={metrics.engagement}
           good={0.6}
         />
         <Gauge
@@ -106,9 +106,17 @@ export default function DeliveryMeter({
             {metrics.pitchDeg.toFixed(0)}°
           </span>
           <span>
-            {metrics.blinksPerMin}/min · {metrics.fps} fps
+            {metrics.blinksPerMin == null
+              ? "blinks —"
+              : `${metrics.blinksPerMin}/min`}{" "}
+            · {metrics.fps} fps
           </span>
         </div>
+        <p className="text-[9px] leading-snug text-white/30">
+          {metrics.calibrated
+            ? "Reading the screen and glancing at notes is normal and is not penalised."
+            : "Calibrating your neutral pose…"}
+        </p>
         <p className="text-[9px] leading-snug text-white/30">
           Runs entirely on your device — no video leaves your machine.
         </p>

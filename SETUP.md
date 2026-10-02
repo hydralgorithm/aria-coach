@@ -340,6 +340,22 @@ answer gains a **delivery score**; the session end adds an averaged report.
 Assets are self-hosted and already committed:
 `frontend/public/models/face_landmarker.task` and `frontend/public/wasm/`.
 
+**What "engagement" means.** It measures how much of the answer you spent
+oriented toward the interviewer, calibrated against your own neutral pose.
+Reading the questions on screen, glancing at notes and looking down are
+accounted for and are *not* penalised — only sustained turning away counts.
+Blink rate shows `—` when an answer was too short to measure, rather than
+inventing a number.
+
+The metric maths is unit tested:
+
+```bash
+cd frontend && node scripts/face-metrics-test.mjs
+```
+
+See **[DELIVERY-METRICS.md](DELIVERY-METRICS.md)** for the full audit: the
+defects that were found, the evidence, and the reasoning behind each fix.
+
 ---
 
 ## 12. Troubleshooting

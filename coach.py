@@ -214,10 +214,14 @@ def delivery_summary() -> dict:
         "available": True,
         "answers_analysed": len(rows),
         "avg_delivery_score": round(sum(scores) / len(scores)) if scores else None,
-        "avg_eye_contact_pct": avg("eyeContactPct", 0),
+        "avg_engagement_pct": avg("engagementPct", 0),
         "avg_smile_pct": avg("smilePct", 0),
         "avg_tension_pct": avg("tensionPct", 0),
-        "avg_blinks_per_min": avg("blinksPerMin", 0),
+        "avg_blinks_per_min": (
+            None
+            if all(r["metrics"].get("blinksPerMin") is None for r in rows)
+            else avg("blinksPerMin", 0)
+        ),
         "avg_head_steadiness": avg("headSteadiness", 2),
         "face_visible_pct": round(100 - avg("noFacePct", 1)),
         "multi_face_flags": sum(
@@ -327,10 +331,23 @@ SCORE_SYSTEM = (
     "avoiding the actual question.\n"
     "The total score is the sum of the five dimensions.\n\n"
     "DELIVERY / BODY LANGUAGE: when delivery metrics from a local webcam "
-    "analysis are provided, judge presentation too (eye contact, warmth, "
+    "analysis are provided, judge presentation too (engagement, warmth, "
     "composure, steadiness) and explain your reasoning in delivery_notes. "
     "Never let delivery override content quality. When no metrics are "
-    "provided, set delivery_score to null and delivery_notes to [].\n\n"
+    "provided, set delivery_score to null and delivery_notes to [].\n"
+    "Interpreting the delivery numbers:\n"
+    "- engagementPct is the share of the answer spent oriented toward the "
+    "interviewer. It is calibrated against the candidate's own neutral pose, "
+    "so reading the questions on screen, glancing at notes and looking down "
+    "are already accounted for and must NOT be treated as poor engagement. "
+    "Only sustained turning away counts.\n"
+    "- blinksPerMin is null when the answer was too short to measure "
+    "reliably - treat null as 'not enough data', never as zero and never as "
+    "a problem. Roughly 17/min at rest and ~26/min in conversation is "
+    "normal; only clearly above ~40/min is worth mentioning, and lower rates "
+    "are normal while someone is reading.\n"
+    "- calibrated false means the neutral pose was still being learned, so "
+    "the posture numbers are less trustworthy.\n\n"
     "Return ONLY JSON:\n"
     '{"breakdown": {"relevance_structure": 0, "specificity_evidence": 0, '
     '"impact_ownership": 0, "communication": 0, "self_awareness": 0},'

@@ -227,7 +227,9 @@ export default function App() {
     setDraft("")
     stopPlayback() // typing a follow-up also cuts Aria off
     if (mode === "interview") {
-      void interview.submitAnswer(text) // typed answers count too
+      // typed answers are analysed too: open a delivery window on focus and
+      // close it on send, otherwise the camera window covers the wrong span
+      void interview.submitAnswer(text, face.endTurn())
       return
     }
     setMessages((m) => [...m, { id: ++nextIdRef.current, role: "user", text }])
@@ -463,6 +465,11 @@ export default function App() {
           <form onSubmit={onSubmitText} className="flex flex-1 gap-2">
             <Input
               value={draft}
+              onFocus={() => {
+                // opening a delivery window when the user starts typing keeps
+                // typed answers measured over the span they were composed
+                if (mode === "interview") face.beginTurn()
+              }}
               onChange={(e) => setDraft(e.target.value)}
               placeholder={
                 stage === "listening"

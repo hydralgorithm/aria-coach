@@ -68,10 +68,10 @@ export type DeliverySummaryReport = {
   available: boolean
   answers_analysed?: number
   avg_delivery_score?: number | null
-  avg_eye_contact_pct?: number
+  avg_engagement_pct?: number
   avg_smile_pct?: number
   avg_tension_pct?: number
-  avg_blinks_per_min?: number
+  avg_blinks_per_min?: number | null
   avg_head_steadiness?: number
   face_visible_pct?: number
   multi_face_flags?: number

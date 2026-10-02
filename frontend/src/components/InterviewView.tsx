@@ -495,8 +495,8 @@ export default function InterviewView({
                   </p>
                   <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
                     <Stat
-                      label="eye contact"
-                      value={`${deliverySummary.avg_eye_contact_pct ?? 0}%`}
+                      label="engagement"
+                      value={`${deliverySummary.avg_engagement_pct ?? 0}%`}
                     />
                     <Stat
                       label="warmth"
@@ -677,13 +677,17 @@ function ScoreCard({ record }: { record: ScoreRecord }) {
           {record.delivery && (
             <div className="mt-1.5 flex flex-wrap gap-3 text-[10px] text-white/50">
               <span className="flex items-center gap-1">
-                <Eye className="size-3" /> eye contact {record.delivery.eyeContactPct}%
+                <Eye className="size-3" /> engagement {record.delivery.engagementPct}%
               </span>
               <span className="flex items-center gap-1">
                 <Smile className="size-3" /> warmth {record.delivery.smilePct}%
               </span>
               <span>tension {record.delivery.tensionPct}%</span>
-              <span>{record.delivery.blinksPerMin} blinks/min</span>
+              <span>
+                  {record.delivery.blinksPerMin == null
+                    ? "blinks n/a"
+                    : `${record.delivery.blinksPerMin} blinks/min`}
+                </span>
             </div>
           )}
           <ul className="mt-1.5 space-y-0.5">
