@@ -156,7 +156,14 @@ export function useVoice(
           body: await blob.arrayBuffer(),
           headers: { "Content-Type": blob.type || "audio/webm" },
         })
-        if (!res.ok) throw new Error(`http ${res.status}`)
+        if (!res.ok) {
+          // surface the backend's actual reason (e.g. ffmpeg missing) instead
+          // of a generic "is the backend running?" that misleads when it isn't
+          const body = (await res.json().catch(() => null)) as {
+            detail?: string
+          } | null
+          throw new Error(body?.detail || `http ${res.status}`)
+        }
         const data = (await res.json()) as { text?: string }
         if (session !== sessionRef.current) return // a newer session started
         log(`transcript ok: ${(data.text || "").slice(0, 40) || "(empty)"}`)
@@ -166,7 +173,11 @@ export function useVoice(
       } catch (err) {
         log(`transcribe FAILED: ${err instanceof Error ? err.message : err}`)
         if (session !== sessionRef.current) return
-        setError("Transcription failed — is the backend running?")
+        setError(
+          err instanceof Error && err.message
+            ? `Transcription failed — ${err.message}`
+            : "Transcription failed — is the backend running?"
+        )
         setStage("idle")
       }
     },

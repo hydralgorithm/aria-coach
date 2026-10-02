@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import glob
 import io
+import os
+import shutil
 import time
 import uuid
 from pathlib import Path
@@ -34,30 +37,83 @@ AUDIO_DIR.mkdir(parents=True, exist_ok=True)
 _TARGET_SR = 16000
 
 
+def _ffmpeg() -> str:
+    """Locate the ffmpeg binary, with an actionable error if it is missing.
+
+    A missing ffmpeg used to surface as a bare WinError 2 from subprocess,
+    which the UI reported as "is the backend running?" even though the
+    backend was healthy.
+
+    PATH is consulted first, then FFMPEG_BINARY, then the usual Windows
+    install locations. The fallback matters because terminals inherit PATH
+    from their parent: an IDE or terminal tab that was already open when
+    ffmpeg was installed keeps the old value, so the server can start,
+    answer /api/chat, and still be unable to decode microphone audio.
+    """
+    candidates = [shutil.which("ffmpeg"), os.environ.get("FFMPEG_BINARY")]
+
+    if os.name == "nt":
+        local = os.environ.get("LOCALAPPDATA", "")
+        program_files = [
+            os.environ.get("ProgramFiles", r"C:\Program Files"),
+            os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)"),
+        ]
+        patterns = [
+            rf"{local}\Microsoft\WinGet\Packages\Gyan.FFmpeg_*\*\bin\ffmpeg.exe",
+            rf"{local}\Microsoft\WinGet\Links\ffmpeg.exe",
+            r"C:\ProgramData\chocolatey\bin\ffmpeg.exe",
+            *[rf"{p}\ffmpeg\bin\ffmpeg.exe" for p in program_files],
+            *[rf"{p}\ffmpeg\ffmpeg.exe" for p in program_files],
+        ]
+        for pattern in patterns:
+            candidates.extend(sorted(glob.glob(pattern), reverse=True))
+
+    for candidate in candidates:
+        if candidate and os.path.isfile(candidate):
+            return candidate
+
+    raise RuntimeError(
+        "ffmpeg was not found, so browser microphone audio cannot be decoded "
+        "(typing still works). Install it with `winget install --id "
+        "Gyan.FFmpeg -e` (macOS: `brew install ffmpeg`, Debian: `sudo apt "
+        "install ffmpeg`). If it is already installed, this terminal has a "
+        "stale PATH - either start the server from a brand-new terminal "
+        "window, or set FFMPEG_BINARY to the full path of ffmpeg.exe."
+    )
+
+
 def _to_wav_bytes(raw: bytes, mime: str) -> bytes:
     """Decode browser audio (webm/opus etc.) to 16 kHz mono WAV via ffmpeg."""
     import subprocess
 
+    ffmpeg = _ffmpeg()
     ext = "webm" if "webm" in mime else "mp4" if "mp4" in mime else "dat"
     src = AUDIO_DIR / f"tmp_{uuid.uuid4().hex}.{ext}"
     src.write_bytes(raw)
     try:
-        subprocess.run(
-            [
-                "ffmpeg",
-                "-y",
-                "-loglevel",
-                "error",
-                "-i",
-                str(src),
-                "-ac",
-                "1",
-                "-ar",
-                str(_TARGET_SR),
-                str(src.with_suffix(".wav")),
-            ],
-            check=True,
-        )
+        try:
+            subprocess.run(
+                [
+                    ffmpeg,
+                    "-y",
+                    "-loglevel",
+                    "error",
+                    "-i",
+                    str(src),
+                    "-ac",
+                    "1",
+                    "-ar",
+                    str(_TARGET_SR),
+                    str(src.with_suffix(".wav")),
+                ],
+                check=True,
+                capture_output=True,
+            )
+        except subprocess.CalledProcessError as exc:
+            detail = (exc.stderr or b"").decode("utf-8", "replace").strip()
+            raise RuntimeError(
+                f"ffmpeg could not decode the recording ({detail or exc})."
+            ) from exc
         return src.with_suffix(".wav").read_bytes()
     finally:
         src.unlink(missing_ok=True)
@@ -77,7 +133,10 @@ async def transcribe(request: Request) -> dict:
         raise HTTPException(400, "empty audio body")
     mime = request.headers.get("content-type", "audio/webm")
     started = time.time()
-    wav = _to_wav_bytes(raw, mime)
+    try:
+        wav = _to_wav_bytes(raw, mime)
+    except RuntimeError as exc:
+        raise HTTPException(500, str(exc)) from exc
     try:
         text = brain.transcribe(wav)
     except Exception as exc:

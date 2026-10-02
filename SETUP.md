@@ -367,21 +367,63 @@ This matters beyond the import error: `server.py` reads `static/` and
 `frontend/dist` as **relative** paths, so even if it imported you would get
 `RuntimeError: Directory 'frontend/dist' does not exist` and no audio.
 
-### `ffmpeg` not found (or voice input returns an error)
+### `ffmpeg` not found — "Transcription failed"
 
 `server.py` shells out to `ffmpeg` to convert browser webm/opus to 16 kHz mono
-WAV for Whisper. Without it, **the microphone is dead but typing still works**.
+WAV for Whisper. Without it **the microphone is dead but typing still works**.
 
-```bash
-ffmpeg -version     # if this fails, ffmpeg is missing or not on PATH
+This version of the backend reports the real cause instead of a generic
+"is the backend running?", so you will see:
+
+> Transcription failed — ffmpeg was not found on PATH, so browser microphone
+> audio cannot be decoded…
+
+**The usual cause on Windows: the server was started in a terminal that was
+open *before* ffmpeg was installed.** Installing it adds it to `PATH`, but a
+terminal **inherits its PATH from whatever launched it**, so only processes
+started afterwards get the new value. Restarting the server in the same tab
+does *not* help, and an IDE terminal (VS Code, Cursor, Antigravity) inherits the
+IDE's PATH — so it stays stale until the IDE itself is restarted.
+
+**This version searches the usual Windows install locations as a fallback**, so
+mic audio works even from a terminal with a stale PATH. If you still hit it,
+set `FFMPEG_BINARY` explicitly:
+
+```powershell
+# PowerShell — put your real path here
+$env:FFMPEG_BINARY = "$env:LOCALAPPDATA\Microsoft\WinGet\Packages\Gyan.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe\ffmpeg-9.0.2-full_build\bin\ffmpeg.exe"
 ```
 
-- Windows: **open a new terminal** after installing, or add the WinGet `bin`
-  folder to `PATH` (see §1).
-- Verify the whole conversion path:
-  ```bash
-  ffmpeg -y -loglevel error -i any.wav -ac 1 -ar 16000 out.wav && echo OK
-  ```
+Or fix the PATH properly — launch a **brand-new terminal window from the Start
+menu** (not a new tab in an existing one):
+
+```powershell
+cd C:\Users\<you>\Desktop\aria-coach
+.\.venv\Scripts\Activate.ps1
+ffmpeg -version          # MUST work BEFORE starting the server
+python -m uvicorn server:app --port 8000
+```
+
+Confirm what the server itself sees (this is the check that actually matters):
+
+```bash
+python -c "import server; print(server._ffmpeg())"
+```
+
+Verify the full conversion path:
+
+```bash
+ffmpeg -y -loglevel error -i any.wav -ac 1 -ar 16000 out.wav && echo OK
+```
+
+### "scoring failed: no current question — upload a resume first"
+
+You sent a message while in **Interview** mode before uploading a resume, so
+there is no question to score the answer against. Either upload a resume
+(PDF/TXT) first, or switch back to **Free chat** mode.
+
+Note the interview session lives in backend memory: restarting the server or
+pressing **New session** clears it, so you will need to re-upload the resume.
 
 ### `UnicodeEncodeError: 'charmap' codec can't encode character`
 
