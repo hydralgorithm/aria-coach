@@ -138,6 +138,7 @@ def persona_public(pid: str) -> dict:
         "tagline": p["tagline"],
         "icon": p["icon"],
         "accent": p["accent"],
+        "audio_url": f"/static/audio/persona_{pid}.wav",
     }
 
 

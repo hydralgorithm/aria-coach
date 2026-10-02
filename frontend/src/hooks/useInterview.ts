@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 
 import type { DeliverySummary } from "@/hooks/useFaceAnalysis"
 
@@ -8,6 +8,7 @@ export type PersonaInfo = {
   tagline: string
   icon: string
   accent: string
+  audio_url?: string
 }
 
 export type Question = {
@@ -89,13 +90,17 @@ const EMPTY: InterviewState = {
   deliverySummary: null,
 }
 
-export function useInterview(playAudio: (url: string) => Promise<void>) {
+export function useInterview(
+  playAudio: (url: string) => Promise<void>,
+  stopAudio?: () => void
+) {
   const [state, setState] = useState<InterviewState>(EMPTY)
   const [personas, setPersonas] = useState<PersonaInfo[]>([])
   const [persona, setPersona] = useState<string>("standard")
   const [analyzing, setAnalyzing] = useState(false)
   const [scoring, setScoring] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const personaAbortRef = useRef<AbortController | null>(null)
 
   // personality modes live on the backend so prompts and UI never drift
   useEffect(() => {
@@ -113,22 +118,49 @@ export function useInterview(playAudio: (url: string) => Promise<void>) {
 
   const choosePersona = useCallback(
     async (id: string) => {
+      // 1. Immediately cut off whatever audio was currently speaking
+      stopAudio?.()
+
+      // 2. Cancel any pending persona switch request
+      personaAbortRef.current?.abort()
+      const controller = new AbortController()
+      personaAbortRef.current = controller
+
       setPersona(id)
       setError(null)
+
+      // 3. If pre-loaded audio exists for this persona, start playing it IMMEDIATELY (0ms latency!)
+      const target = personas.find((p) => p.id === id)
+      let startedImmediate = false
+      if (target?.audio_url) {
+        startedImmediate = true
+        void playAudio(target.audio_url)
+      }
+
       try {
         const res = await fetch("/api/interview/persona", {
           method: "POST",
+          signal: controller.signal,
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ message: id }),
         })
         const data = await res.json()
         if (!res.ok) throw new Error(data.detail || `http ${res.status}`)
-        if (data.audio_url) void playAudio(data.audio_url)
+
+        // If not already started, play now
+        if (!startedImmediate && data.audio_url) {
+          void playAudio(data.audio_url)
+        }
       } catch (err) {
+        if (controller.signal.aborted) return
         setError(err instanceof Error ? err.message : "could not switch mode")
+      } finally {
+        if (personaAbortRef.current === controller) {
+          personaAbortRef.current = null
+        }
       }
     },
-    [playAudio]
+    [personas, playAudio, stopAudio]
   )
 
   const loadResume = useCallback(

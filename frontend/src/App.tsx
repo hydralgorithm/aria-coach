@@ -65,36 +65,58 @@ export default function App() {
     )
   }, [])
 
-  const playAudio = useCallback(async (url: string) => {
+  const stopPlayback = useCallback(() => {
     const el = audioRef.current
-    if (!el) return
-    lastAudioUrlRef.current = url
-    setSpeaking(true)
-    el.src = url
-    try {
-      await el.play()
-      setPlaybackBlocked(false)
-    } catch {
-      // never fail silently: surface a manual play button
-      setPlaybackBlocked(true)
+    if (el) {
+      el.pause()
+      el.currentTime = 0
     }
-    // resolvable early so barge-in can cancel playback instantly
-    await new Promise<void>((resolve) => {
-      let done = false
-      const finish = () => {
-        if (done) return
-        done = true
-        el.onended = null
-        el.onerror = null
-        playbackCancelRef.current = null
-        resolve()
-      }
-      el.onended = finish
-      el.onerror = finish
-      playbackCancelRef.current = finish
-    })
+    playbackCancelRef.current?.()
+    playbackCancelRef.current = null
     setSpeaking(false)
   }, [])
+
+  const playAudio = useCallback(
+    async (url: string) => {
+      const el = audioRef.current
+      if (!el) return
+
+      // Stop and cancel any existing audio playback instantly
+      stopPlayback()
+
+      lastAudioUrlRef.current = url
+      setSpeaking(true)
+      el.src = url
+      try {
+        await el.play()
+        setPlaybackBlocked(false)
+      } catch {
+        // never fail silently: surface a manual play button
+        setPlaybackBlocked(true)
+      }
+      // resolvable early so barge-in or persona switch can cancel playback instantly
+      await new Promise<void>((resolve) => {
+        let done = false
+        const finish = () => {
+          if (done) return
+          done = true
+          el.onended = null
+          el.onerror = null
+          if (playbackCancelRef.current === finish) {
+            playbackCancelRef.current = null
+          }
+          resolve()
+        }
+        el.onended = finish
+        el.onerror = finish
+        playbackCancelRef.current = finish
+      })
+      if (audioRef.current?.src.endsWith(url)) {
+        setSpeaking(false)
+      }
+    },
+    [stopPlayback]
+  )
 
   const respond = useCallback(
     async (text: string) => {
@@ -151,7 +173,7 @@ export default function App() {
     [respond, scrollToBottom]
   )
 
-  const interview = useInterview(playAudio)
+  const interview = useInterview(playAudio, stopPlayback)
   const face = useFaceAnalysis()
 
   const router = useCallback(
@@ -185,11 +207,6 @@ export default function App() {
     if (mode === "interview") face.beginTurn()
     start()
   }, [mode, face, start])
-
-  const stopPlayback = useCallback(() => {
-    audioRef.current?.pause()
-    playbackCancelRef.current?.()
-  }, [])
 
   const interruptToListen = useCallback(() => {
     abortRef.current?.abort()
@@ -280,7 +297,10 @@ export default function App() {
             ).map(([value, label, Icon]) => (
               <button
                 key={value}
-                onClick={() => setMode(value)}
+                onClick={() => {
+                  stopPlayback()
+                  setMode(value)
+                }}
                 className={`flex items-center gap-1.5 rounded-full px-3 py-1 text-[11px] transition ${
                   mode === value
                     ? "bg-white/15 text-white"

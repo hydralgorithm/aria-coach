@@ -289,12 +289,16 @@ async def interview_persona(req: ChatRequest) -> dict:
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
     info = coach.persona_public(coach._state["persona"])
-    greeting = f"Switching mode. I'm now {info['label']}. {info['tagline']}."
-    try:
-        audio_url = await synthesize_audio(greeting, voice=coach.persona_voice())
-    except Exception as exc:
-        print(f"  [tts] persona audio failed: {exc}")
-        audio_url = ""
+    preset_file = AUDIO_DIR / f"persona_{req.message}.wav"
+    if preset_file.exists() and preset_file.stat().st_size > 0:
+        audio_url = f"/static/audio/{preset_file.name}"
+    else:
+        greeting = f"Switching mode. I'm now {info['label']}. {info['tagline']}."
+        try:
+            audio_url = await synthesize_audio(greeting, voice=coach.persona_voice())
+        except Exception as exc:
+            print(f"  [tts] persona audio failed: {exc}")
+            audio_url = ""
     return {
         "persona": info,
         "audio_url": audio_url,
