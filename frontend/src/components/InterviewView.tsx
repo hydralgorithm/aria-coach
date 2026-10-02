@@ -5,18 +5,12 @@ import {
   Upload,
   Mic,
   AudioLines,
-  Loader2,
   Sparkles,
   TrendingUp,
   CheckCircle2,
   AlertTriangle,
   Lightbulb,
   RotateCcw,
-  Briefcase,
-  Shield,
-  VenetianMask,
-  Heart,
-  Zap,
   Flag,
   GraduationCap,
   Award,
@@ -24,11 +18,13 @@ import {
   Eye,
   Smile,
   Video,
-  type LucideIcon,
 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
+import { AvatarOrb, type AvatarColor, type AvatarShape } from "@/components/ui/avatar-orb"
+import { ThinkingOrb } from "@/components/ui/thinking-orbs"
+import { BorderBeam } from "@/components/ui/border-beam"
 import type { ChatStage } from "@/hooks/useVoice"
 import type {
   DeliverySummaryReport,
@@ -38,12 +34,12 @@ import type {
   StructuredResume,
 } from "@/hooks/useInterview"
 
-const ICONS: Record<string, LucideIcon> = {
-  briefcase: Briefcase,
-  shield: Shield,
-  mask: VenetianMask,
-  heart: Heart,
-  zap: Zap,
+const PERSONA_ORBS: Record<string, { color: AvatarColor; shape: AvatarShape }> = {
+  standard: { color: "indigo", shape: "circle" },
+  strict: { color: "orange", shape: "circle" },
+  crook: { color: "red", shape: "circle" },
+  kind: { color: "green", shape: "circle" },
+  rapid: { color: "cyan", shape: "circle" },
 }
 
 const ACCENTS: Record<
@@ -141,98 +137,116 @@ export default function InterviewView({
 
   if (questions.length === 0) {
     return (
-      <div className="mx-auto mt-[8vh] max-w-2xl px-6 text-center">
-        <div className="mx-auto mb-5 flex size-16 items-center justify-center rounded-3xl bg-gradient-to-br from-iris-500 to-iris-600 shadow-2xl shadow-iris-600/50">
-          <FileText className="size-8" />
+      <div className="mx-auto max-w-2xl px-4 sm:px-6 py-6 sm:py-8 text-center">
+        {/* Hero icon */}
+        <div className="relative mx-auto mb-5 w-fit">
+          <div className="absolute -inset-3 rounded-[28px] bg-gradient-to-br from-iris-500/35 to-iris-600/20 blur-2xl" />
+          <div className="relative flex size-16 items-center justify-center rounded-3xl bg-gradient-to-br from-iris-500 to-iris-600 shadow-2xl shadow-iris-600/40">
+            <FileText className="size-8" />
+          </div>
         </div>
-        <h2 className="text-2xl font-semibold tracking-tight">
+        <h2 className="text-2xl sm:text-3xl font-semibold tracking-tight">
           Practical interview practice
         </h2>
-        <p className="mt-2 text-sm text-white/55">
+        <p className="mt-2 text-sm leading-relaxed text-white/50 max-w-lg mx-auto">
           Pick who you want to face. Aria reads your resume, writes questions
           from your real experience, and scores each answer like an HR
           scorecard.
         </p>
 
-        {/* interviewer personality */}
-        <div className="mt-7 text-left">
-          <p className="mb-2 text-xs uppercase tracking-wider text-white/40">
+        {/* Interviewer personality */}
+        <div className="mt-8 text-left">
+          <p className="mb-3 text-[10px] uppercase tracking-widest text-white/35">
             Who is interviewing you?
           </p>
-          <div className="grid gap-2 sm:grid-cols-2">
+          <div className="grid gap-2.5 sm:grid-cols-2">
             {personas.map((p) => {
-              const Icon = ICONS[p.icon] ?? Briefcase
               const accent = ACCENTS[p.accent] ?? ACCENTS.iris
+              const orb = PERSONA_ORBS[p.id] ?? { color: "violet", shape: "squircle" }
               const active = activePersona?.id === p.id
               return (
                 <button
                   key={p.id}
                   onClick={() => onPersona(p.id)}
-                  className={`flex items-start gap-3 rounded-2xl border p-3 text-left transition ${
+                  className={`group relative flex items-start gap-3.5 rounded-2xl border p-4 text-left transition-all duration-200 ${
                     active
-                      ? `${accent.ring} ${accent.bg}`
-                      : "border-white/10 bg-white/[0.03] hover:bg-white/[0.07]"
+                      ? `${accent.ring} ${accent.bg} shadow-lg shadow-black/40`
+                      : "border-white/[0.08] bg-white/[0.03] hover:bg-white/[0.07] hover:border-white/15"
                   }`}
                 >
-                  <span
-                    className={`flex size-8 shrink-0 items-center justify-center rounded-xl ${accent.bg} ${accent.text}`}
-                  >
-                    <Icon className="size-4" />
-                  </span>
-                  <span>
+                  {/* Persona Avatar Orb */}
+                  <div className="shrink-0 pt-0.5">
+                    <AvatarOrb color={orb.color} shape={orb.shape} size="sm" blinking={active} />
+                  </div>
+                  <span className="min-w-0">
                     <span
-                      className={`block text-sm font-medium ${active ? accent.text : "text-white/85"}`}
+                      className={`block text-sm font-semibold leading-snug ${
+                        active ? accent.text : "text-white/90"
+                      }`}
                     >
                       {p.label}
                     </span>
-                    <span className="mt-0.5 block text-xs text-white/45">
+                    <span className="mt-0.5 block text-xs leading-relaxed text-white/45">
                       {p.tagline}
                     </span>
                   </span>
+                  {active && (
+                    <span className={`absolute right-3 top-3 flex size-5 items-center justify-center rounded-full ${accent.solid}`}>
+                      <CheckCircle2 className="size-3 text-white" />
+                    </span>
+                  )}
                 </button>
               )
             })}
           </div>
         </div>
 
-        <div
-          onDragOver={(e) => {
-            e.preventDefault()
-            setDragging(true)
-          }}
-          onDragLeave={() => setDragging(false)}
-          onDrop={(e) => {
-            e.preventDefault()
-            setDragging(false)
-            const file = e.dataTransfer.files?.[0]
-            if (file) onUpload(file)
-          }}
-          onClick={() => fileRef.current?.click()}
-          className={`mt-4 cursor-pointer rounded-2xl border-2 border-dashed px-6 py-8 transition ${
-            dragging
-              ? "border-iris-400 bg-iris-500/10"
-              : "border-white/15 bg-white/[0.03] hover:border-white/30 hover:bg-white/[0.06]"
-          }`}
-        >
-          {analyzing ? (
-            <div className="flex flex-col items-center gap-3 text-white/70">
-              <Loader2 className="size-6 animate-spin text-iris-300" />
-              <p className="text-sm">
-                Parsing your resume and writing tailored questions…
-              </p>
+        {/* Drop zone */}
+        <div className="mt-6">
+          <DropZoneBeamWrapper active={dragging}>
+            <div
+              onDragOver={(e) => {
+                e.preventDefault()
+                setDragging(true)
+              }}
+              onDragLeave={() => setDragging(false)}
+              onDrop={(e) => {
+                e.preventDefault()
+                setDragging(false)
+                const file = e.dataTransfer.files?.[0]
+                if (file) onUpload(file)
+              }}
+              onClick={() => fileRef.current?.click()}
+              className={`cursor-pointer rounded-2xl border-2 border-dashed px-6 py-8 transition-all duration-200 ${
+                dragging
+                  ? "border-iris-400 bg-iris-500/10"
+                  : "border-white/12 bg-white/[0.02] hover:border-iris-400/40 hover:bg-iris-500/[0.05]"
+              }`}
+            >
+              {analyzing ? (
+                <div className="flex flex-col items-center gap-3 text-white/80 py-2">
+                  <ThinkingOrb state="searching" size={64} theme="dark" />
+                  <p className="text-sm font-medium">
+                    Analyzing your resume & tailoring questions…
+                  </p>
+                  <p className="text-xs text-white/40">
+                    Extracting skills, career highlights, and scoring criteria
+                  </p>
+                </div>
+              ) : (
+                <div className="flex flex-col items-center gap-2.5 text-white/55">
+                  <Upload className="size-6 text-iris-300" />
+                  <p className="text-sm">
+                    Drop your resume here, or{" "}
+                    <span className="text-iris-300 font-medium">browse</span>
+                  </p>
+                  <p className="text-xs text-white/30">
+                    PDF or TXT · scanned PDFs are OCR'd automatically
+                  </p>
+                </div>
+              )}
             </div>
-          ) : (
-            <div className="flex flex-col items-center gap-2 text-white/60">
-              <Upload className="size-6" />
-              <p className="text-sm">
-                Drop your resume here, or{" "}
-                <span className="text-iris-300">browse</span>
-              </p>
-              <p className="text-xs text-white/35">
-                PDF or TXT · scanned PDFs are OCR'd automatically
-              </p>
-            </div>
-          )}
+          </DropZoneBeamWrapper>
         </div>
 
         <input
@@ -336,27 +350,29 @@ export default function InterviewView({
         )}
       </Card>
 
-      {/* switch interviewer mid-session */}
+      {/* Switch interviewer mid-session */}
       <div className="flex flex-wrap items-center gap-1.5">
-        <span className="mr-1 text-[10px] uppercase tracking-wider text-white/35">
-          interviewer
+        <span className="mr-1 text-[10px] uppercase tracking-widest text-white/30">
+          Interviewer
         </span>
         {personas.map((p) => {
-          const Icon = ICONS[p.icon] ?? Briefcase
           const accent = ACCENTS[p.accent] ?? ACCENTS.iris
+          const orb = PERSONA_ORBS[p.id] ?? { color: "violet", shape: "squircle" }
           const active = activePersona?.id === p.id
           return (
             <button
               key={p.id}
               onClick={() => onPersona(p.id)}
               title={p.tagline}
-              className={`flex items-center gap-1 rounded-full border px-2.5 py-1 text-[10px] transition ${
+              className={`flex items-center gap-2 rounded-full border px-3 py-1.5 text-[11px] font-medium transition-all duration-200 ${
                 active
-                  ? `${accent.ring} ${accent.bg} ${accent.text}`
-                  : "border-white/10 bg-white/5 text-white/45 hover:text-white/80"
+                  ? `${accent.ring} ${accent.bg} ${accent.text} shadow-sm`
+                  : "border-white/[0.08] bg-white/[0.04] text-white/45 hover:bg-white/[0.08] hover:text-white/75"
               }`}
             >
-              <Icon className="size-3" />
+              <div className="shrink-0 scale-75 -my-1">
+                <AvatarOrb color={orb.color} shape={orb.shape} size="sm" blinking={false} />
+              </div>
               {p.label}
             </button>
           )
@@ -372,7 +388,7 @@ export default function InterviewView({
             <span
               key={q.id}
               title={q.question}
-              className={`flex h-7 min-w-7 items-center justify-center rounded-lg border px-2 text-xs ${
+              className={`flex h-7 min-w-7 items-center justify-center rounded-lg border px-2 text-xs font-medium ${
                 record
                   ? "border-mint-400/40 bg-mint-400/10 text-mint-400"
                   : isCurrent
@@ -400,65 +416,108 @@ export default function InterviewView({
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -8 }}
           >
-            <Card className="border-iris-400/25 bg-iris-500/[0.07] p-5">
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="rounded-full border border-white/15 bg-white/5 px-2.5 py-0.5 text-[10px] uppercase tracking-wider text-white/60">
-                  {currentQuestion.type}
-                </span>
-                {currentQuestion.competency && (
-                  <span className="rounded-full border border-iris-400/30 bg-iris-500/10 px-2.5 py-0.5 text-[10px] uppercase tracking-wider text-iris-300">
-                    {currentQuestion.competency}
-                  </span>
-                )}
-              </div>
-              <p className="mt-3 text-base leading-relaxed text-white">
-                {currentQuestion.question}
-              </p>
-              {currentQuestion.why && (
-                <p className="mt-2 flex items-start gap-1.5 text-xs text-white/45">
-                  <Lightbulb className="mt-0.5 size-3.5 shrink-0" />
-                  {currentQuestion.why}
-                </p>
-              )}
-
-              <div className="mt-4 flex items-center gap-3">
-                <Button
-                  onClick={listening ? stop : start}
-                  disabled={scoring || speaking}
-                  className={`relative size-12 shrink-0 rounded-2xl ${
-                    listening ? "bg-red-500 hover:bg-red-400" : ""
-                  }`}
-                >
-                  {listening && (
-                    <span className="absolute inset-0 animate-pulse-ring rounded-2xl bg-red-500/60" />
-                  )}
-                  {listening ? (
-                    <AudioLines className="size-5" />
-                  ) : (
-                    <Mic className="size-5" />
-                  )}
-                </Button>
-                <div className="flex h-7 flex-1 items-end gap-1">
-                  {listening ? (
-                    levels.map((l, i) => (
-                      <span
-                        key={i}
-                        className="w-1.5 rounded-full bg-red-400/80"
-                        style={{ height: `${Math.round(4 + l * 24)}px` }}
-                      />
-                    ))
-                  ) : (
-                    <span className="text-xs text-white/45">
-                      {scoring
-                        ? "Scoring your answer against the HR scorecard…"
-                        : speaking
-                          ? `${activePersona?.label ?? "The interviewer"} is speaking…`
-                          : "Tap the mic and answer out loud (pause when done)"}
+            <QuestionBeamWrapper active={speaking}>
+              <Card className="border-iris-400/25 bg-iris-500/[0.07] p-5 relative overflow-hidden">
+                {/* Active interviewer header banner */}
+                <div className="flex items-center justify-between gap-3 pb-3 mb-3 border-b border-white/[0.07]">
+                  <div className="flex items-center gap-3">
+                    <AvatarOrb
+                      color={
+                        (activePersona && PERSONA_ORBS[activePersona.id]?.color) ||
+                        "indigo"
+                      }
+                      shape={
+                        (activePersona && PERSONA_ORBS[activePersona.id]?.shape) ||
+                        "circle"
+                      }
+                      size="sm"
+                      blinking={speaking}
+                    />
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-semibold text-white/95">
+                          {activePersona?.label ?? "Interviewer"}
+                        </span>
+                        {speaking && (
+                          <span className="flex items-center gap-1 text-[10px] text-iris-300 font-medium">
+                            <span className="size-1.5 rounded-full bg-iris-400 animate-pulse" />
+                            Speaking
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-[11px] text-white/45 line-clamp-1">
+                        {activePersona?.tagline}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-1.5 shrink-0">
+                    <span className="rounded-full border border-white/15 bg-white/5 px-2.5 py-0.5 text-[10px] uppercase tracking-wider text-white/60">
+                      {currentQuestion.type}
                     </span>
-                  )}
+                    {currentQuestion.competency && (
+                      <span className="rounded-full border border-iris-400/30 bg-iris-500/10 px-2.5 py-0.5 text-[10px] uppercase tracking-wider text-iris-300">
+                        {currentQuestion.competency}
+                      </span>
+                    )}
+                  </div>
                 </div>
-              </div>
-            </Card>
+
+                <p className="text-base sm:text-lg leading-relaxed text-white font-medium">
+                  {currentQuestion.question}
+                </p>
+                {currentQuestion.why && (
+                  <p className="mt-2.5 flex items-start gap-1.5 text-xs text-white/45">
+                    <Lightbulb className="mt-0.5 size-3.5 shrink-0 text-amber-300/80" />
+                    {currentQuestion.why}
+                  </p>
+                )}
+
+                <div className="mt-5 flex items-center gap-3">
+                  <button
+                    onClick={listening ? stop : start}
+                    disabled={scoring || speaking}
+                    className={`relative flex size-12 shrink-0 items-center justify-center rounded-2xl transition-all duration-200 disabled:pointer-events-none disabled:opacity-40 ${
+                      listening
+                        ? "bg-gradient-to-br from-rose-500 to-red-500 shadow-lg shadow-red-500/40"
+                        : "bg-gradient-to-br from-iris-600 to-iris-500 shadow-lg shadow-iris-600/35 hover:scale-105"
+                    }`}
+                  >
+                    {listening && (
+                      <span className="absolute inset-0 animate-pulse-ring rounded-2xl bg-red-500/50" />
+                    )}
+                    {listening ? (
+                      <AudioLines className="size-5 text-white" />
+                    ) : (
+                      <Mic className="size-5 text-white" />
+                    )}
+                  </button>
+                  <div className="flex h-7 flex-1 items-center gap-2">
+                    {listening ? (
+                      <div className="flex h-7 items-end gap-0.5">
+                        {levels.map((l, i) => (
+                          <span
+                            key={i}
+                            className="w-1 rounded-full bg-rose-400/90 transition-[height] duration-75"
+                            style={{ height: `${Math.round(3 + l * 24)}px` }}
+                          />
+                        ))}
+                      </div>
+                    ) : scoring ? (
+                      <div className="flex items-center gap-2 text-xs text-iris-200">
+                        <ThinkingOrb state="solving" size={20} theme="dark" />
+                        <span>Scoring your answer against the HR scorecard…</span>
+                      </div>
+                    ) : (
+                      <span className="text-xs text-white/40">
+                        {speaking
+                          ? `${activePersona?.label ?? "The interviewer"} is speaking… (tap mic or Space to jump in)`
+                          : "Tap the mic and answer out loud (pause when done)"}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </Card>
+            </QuestionBeamWrapper>
           </motion.div>
         ) : (
           <motion.div
@@ -738,3 +797,33 @@ function ScoreCard({ record }: { record: ScoreRecord }) {
     </Card>
   )
 }
+
+function DropZoneBeamWrapper({ active, children }: { active: boolean; children: React.ReactNode }) {
+  if (active) {
+    return (
+      <BorderBeam size="md" colorVariant="ocean" className="rounded-2xl">
+        {children}
+      </BorderBeam>
+    )
+  }
+  return <>{children}</>
+}
+
+function QuestionBeamWrapper({ active, children }: { active: boolean; children: React.ReactNode }) {
+  if (active) {
+    return (
+      <BorderBeam
+        size="sm"
+        colorVariant="ocean"
+        strength={0.35}
+        brightness={0.8}
+        glowSize={0.4}
+        className="rounded-2xl"
+      >
+        {children}
+      </BorderBeam>
+    )
+  }
+  return <>{children}</>
+}
+

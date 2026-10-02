@@ -5,16 +5,19 @@ import {
   AudioLines,
   Send,
   RotateCcw,
-  Bot,
   User,
   Bug,
   Briefcase,
   MessagesSquare,
   Play,
+  Sparkles,
+  Zap,
 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
+import { AvatarOrb } from "@/components/ui/avatar-orb"
+import { ThinkingOrb } from "@/components/ui/thinking-orbs"
+import { BorderBeam } from "@/components/ui/border-beam"
 import DebugPanel from "@/components/DebugPanel"
 import InterviewView from "@/components/InterviewView"
 import DeliveryMeter from "@/components/DeliveryMeter"
@@ -25,7 +28,7 @@ import { useFaceAnalysis } from "@/hooks/useFaceAnalysis"
 type Msg = { id: number; role: "user" | "aria"; text: string }
 
 const STAGE_LABEL: Record<ChatStage, string> = {
-  idle: "Tap the mic or type to begin",
+  idle: "Ask me anything…",
   listening: "Listening…",
   transcribing: "Transcribing…",
   thinking: "Thinking…",
@@ -46,7 +49,6 @@ export default function App() {
   const [draft, setDraft] = useState("")
   const [showDebug, setShowDebug] = useState(false)
   const [mode, setMode] = useState<"chat" | "interview">("chat")
-  // when on, a pause ends your turn; turn it off and only you stop recording
   const [autoStop, setAutoStop] = useState(true)
   const [playbackBlocked, setPlaybackBlocked] = useState(false)
   const nextIdRef = useRef(0)
@@ -55,6 +57,15 @@ export default function App() {
   const lastAudioUrlRef = useRef<string>("")
   const abortRef = useRef<AbortController | null>(null)
   const playbackCancelRef = useRef<(() => void) | null>(null)
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
+
+  // Auto-grow textarea (Bolt-style)
+  useEffect(() => {
+    const el = textareaRef.current
+    if (!el) return
+    el.style.height = "auto"
+    el.style.height = `${Math.min(el.scrollHeight, 160)}px`
+  }, [draft])
 
   const scrollToBottom = useCallback(() => {
     requestAnimationFrame(() =>
@@ -80,10 +91,7 @@ export default function App() {
     async (url: string) => {
       const el = audioRef.current
       if (!el) return
-
-      // Stop and cancel any existing audio playback instantly
       stopPlayback()
-
       lastAudioUrlRef.current = url
       setSpeaking(true)
       el.src = url
@@ -91,10 +99,8 @@ export default function App() {
         await el.play()
         setPlaybackBlocked(false)
       } catch {
-        // never fail silently: surface a manual play button
         setPlaybackBlocked(true)
       }
-      // resolvable early so barge-in or persona switch can cancel playback instantly
       await new Promise<void>((resolve) => {
         let done = false
         const finish = () => {
@@ -120,7 +126,7 @@ export default function App() {
 
   const respond = useCallback(
     async (text: string) => {
-      abortRef.current?.abort() // drop any in-flight turn being interrupted
+      abortRef.current?.abort()
       const controller = new AbortController()
       abortRef.current = controller
       setThinking(true)
@@ -131,25 +137,15 @@ export default function App() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ message: text }),
         })
-        const data = (await res.json()) as {
-          reply: string
-          audio_url: string
-        }
-        setMessages((m) => [
-          ...m,
-          { id: ++nextIdRef.current, role: "aria", text: data.reply },
-        ])
+        const data = (await res.json()) as { reply: string; audio_url: string }
+        setMessages((m) => [...m, { id: ++nextIdRef.current, role: "aria", text: data.reply }])
         scrollToBottom()
         await playAudio(data.audio_url)
       } catch {
-        if (controller.signal.aborted) return // interrupted — stay quiet
+        if (controller.signal.aborted) return
         setMessages((m) => [
           ...m,
-          {
-            id: ++nextIdRef.current,
-            role: "aria",
-            text: "(Connection to the coach was lost — is the backend running?)",
-          },
+          { id: ++nextIdRef.current, role: "aria", text: "(Connection to the coach was lost — is the backend running?)" },
         ])
         scrollToBottom()
       } finally {
@@ -163,10 +159,7 @@ export default function App() {
 
   const handleTranscript = useCallback(
     (text: string) => {
-      setMessages((m) => [
-        ...m,
-        { id: ++nextIdRef.current, role: "user", text },
-      ])
+      setMessages((m) => [...m, { id: ++nextIdRef.current, role: "user", text }])
       scrollToBottom()
       void respond(text)
     },
@@ -178,19 +171,14 @@ export default function App() {
 
   const router = useCallback(
     (text: string) => {
-      if (mode === "interview") {
-        // the answer just ended — close the delivery window and report it
-        void interview.submitAnswer(text, face.endTurn())
-      } else {
-        handleTranscript(text)
-      }
+      if (mode === "interview") void interview.submitAnswer(text, face.endTurn())
+      else handleTranscript(text)
     },
     [mode, interview, handleTranscript, face]
   )
 
   const { stage, levels, error, start, stop, debug } = useVoice(router, autoStop)
 
-  // 'd' toggles the mic diagnostics panel (ignored while typing)
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key.toLowerCase() !== "d" || e.metaKey || e.ctrlKey) return
@@ -202,7 +190,6 @@ export default function App() {
     return () => window.removeEventListener("keydown", onKey)
   }, [])
 
-  /** start a voice turn, opening a delivery-analysis window when relevant */
   const startAnswering = useCallback(() => {
     if (mode === "interview") face.beginTurn()
     start()
@@ -216,7 +203,6 @@ export default function App() {
     start()
   }, [start, stopPlayback])
 
-  // Spacebar: interrupt Aria / push-to-talk (ignored while typing)
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.code !== "Space") return
@@ -237,21 +223,26 @@ export default function App() {
     else if (stage === "idle") startAnswering()
   }
 
-  const onSubmitText = (e: React.FormEvent) => {
-    e.preventDefault()
+  const onSubmitText = (e?: React.FormEvent) => {
+    e?.preventDefault()
     const text = draft.trim()
     if (!text || stage === "listening" || stage === "transcribing") return
     setDraft("")
-    stopPlayback() // typing a follow-up also cuts Aria off
+    stopPlayback()
     if (mode === "interview") {
-      // typed answers are analysed too: open a delivery window on focus and
-      // close it on send, otherwise the camera window covers the wrong span
       void interview.submitAnswer(text, face.endTurn())
       return
     }
     setMessages((m) => [...m, { id: ++nextIdRef.current, role: "user", text }])
     scrollToBottom()
     void respond(text)
+  }
+
+  const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault()
+      onSubmitText()
+    }
   }
 
   const reset = () => {
@@ -268,70 +259,90 @@ export default function App() {
   }
 
   const micBusy = stage === "transcribing"
+  const isListening = stage === "listening"
+  const isThinkingOrSpeaking = speaking || thinking
 
   return (
     <div className="relative flex h-full flex-col overflow-hidden">
       <div className="aurora-bg" />
       <div className="grid-overlay" />
+      {/* Radiant ambient glow */}
+      <div
+        className="pointer-events-none absolute left-1/2 -top-[160px] -translate-x-1/2 w-[900px] h-[380px] opacity-60 z-0"
+        style={{
+          background: "radial-gradient(ellipse at center, rgba(110, 46, 224, 0.28) 0%, rgba(20, 136, 252, 0.12) 45%, transparent 70%)"
+        }}
+      />
 
-      {/* header */}
-      <header className="relative z-10 flex items-center justify-between px-6 py-4">
-        <div className="flex items-center gap-3">
-          <img
-            src="/catdance.gif"
-            alt="Aria"
-            className="size-10 shrink-0 rounded-2xl bg-ink-800 object-cover shadow-lg shadow-iris-600/40"
-          />
+      {/* ── Header ── */}
+      <header className="relative z-20 flex flex-wrap items-center justify-between gap-3 border-b border-white/[0.06] bg-ink-950/60 px-4 sm:px-6 py-2.5 backdrop-blur-xl shrink-0">
+        {/* Brand */}
+        <div className="flex items-center gap-2.5">
+          <AvatarOrb color="violet" size="sm" shape="circle" blinking />
           <div>
-            <h1 className="text-sm font-semibold tracking-wide">ARIA</h1>
-            <p className="text-xs text-white/50">
-              voice interview coach · step 1: conversation
-            </p>
-          </div>
-          <div className="ml-3 flex rounded-full border border-white/10 bg-white/5 p-0.5">
-            {(
-              [
-                ["chat", "Free chat", MessagesSquare],
-                ["interview", "Interview coach", Briefcase],
-              ] as const
-            ).map(([value, label, Icon]) => (
-              <button
-                key={value}
-                onClick={() => {
-                  stopPlayback()
-                  setMode(value)
-                }}
-                className={`flex items-center gap-1.5 rounded-full px-3 py-1 text-[11px] transition ${
-                  mode === value
-                    ? "bg-white/15 text-white"
-                    : "text-white/50 hover:text-white/80"
-                }`}
-              >
-                <Icon className="size-3.5" />
-                {label}
-              </button>
-            ))}
+            <div className="flex items-center gap-1.5">
+              <h1 className="text-sm font-semibold tracking-widest text-white">ARIA</h1>
+              <span className="flex items-center gap-0.5 rounded-full border border-iris-400/40 bg-iris-500/15 px-1.5 py-0.5 text-[9px] font-medium tracking-wider text-iris-300">
+                <Zap className="size-2.5" />
+                AI
+              </span>
+            </div>
+            <p className="text-[10px] text-white/40 tracking-wide hidden sm:block">voice interview coach</p>
           </div>
         </div>
-        <div className="flex items-center gap-1">
-          <Button
-            variant="ghost"
-            size="icon"
+
+        {/* Mode tabs */}
+        <div className="order-3 sm:order-2 flex mx-auto sm:mx-0 rounded-full border border-white/[0.08] bg-white/[0.04] p-0.5 backdrop-blur-xl shadow-lg shadow-black/20">
+          {(
+            [
+              ["chat", "Free chat", MessagesSquare],
+              ["interview", "Interview coach", Briefcase],
+            ] as const
+          ).map(([value, label, Icon]) => (
+            <button
+              key={value}
+              onClick={() => { stopPlayback(); setMode(value) }}
+              className={`relative flex items-center gap-1.5 rounded-full px-4 py-1.5 text-[11px] font-medium transition-all duration-200 ${
+                mode === value ? "text-white" : "text-white/45 hover:text-white/70"
+              }`}
+            >
+              {mode === value && (
+                <motion.span
+                  layoutId="mode-pill"
+                  className="absolute inset-0 rounded-full bg-white/12 shadow-inner shadow-white/5"
+                  transition={{ type: "spring", stiffness: 400, damping: 30 }}
+                />
+              )}
+              <Icon className="relative size-3.5" />
+              <span className="relative">{label}</span>
+            </button>
+          ))}
+        </div>
+
+        {/* Actions */}
+        <div className="order-2 sm:order-3 flex items-center gap-1.5">
+          <button
             onClick={() => setShowDebug((v) => !v)}
-            aria-label="Toggle mic diagnostics"
             title="Mic diagnostics (D)"
-            className={showDebug ? "text-mint-400" : ""}
+            className={`flex size-8 items-center justify-center rounded-xl transition hover:bg-white/10 ${
+              showDebug ? "text-mint-400" : "text-white/40 hover:text-white/70"
+            }`}
           >
-            <Bug />
-          </Button>
-          <Button variant="ghost" onClick={reset}>
-            <RotateCcw /> New session
-          </Button>
+            <Bug className="size-4" />
+          </button>
+          <button
+            onClick={reset}
+            className="flex items-center gap-1.5 rounded-xl border border-white/[0.08] bg-white/[0.04] px-3 py-1.5 text-[11px] text-white/55 transition hover:bg-white/10 hover:text-white/80"
+          >
+            <RotateCcw className="size-3.5" />
+            <span className="hidden sm:inline">New session</span>
+          </button>
         </div>
       </header>
 
+      {/* ── Main content ── */}
       {mode === "interview" ? (
-        <main className="relative z-10 flex-1 overflow-y-auto pb-4">
+        <main className="relative z-10 flex-1 min-h-0 overflow-y-auto pb-4">
           <InterviewView
             filename={interview.filename}
             profile={interview.profile}
@@ -356,209 +367,218 @@ export default function App() {
           />
         </main>
       ) : (
-      <main
-        ref={scrollRef}
-        className="relative z-10 flex-1 space-y-4 overflow-y-auto px-6 pb-4"
-      >
-        <AnimatePresence initial={false}>
-          {messages.length === 0 && !thinking && (
-            <motion.div
-              key="welcome"
-              initial={{ opacity: 0, y: 16 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0 }}
-              className="mx-auto mt-[16vh] max-w-lg text-center"
-            >
-              <img
-                src="/catdance.gif"
-                alt="Aria"
-                className="mx-auto mb-5 size-16 rounded-3xl bg-ink-800 object-cover shadow-2xl shadow-iris-600/50"
-              />
-              <h2 className="text-2xl font-semibold tracking-tight">
-                Hey, I'm Aria
-              </h2>
-              <p className="mt-2 text-sm text-white/55">
-                Tap the mic and speak — I'll listen, think, and answer out
-                loud. Or just type below.
-              </p>
-              <div className="mt-6 flex flex-wrap justify-center gap-2">
-                {PROMPTS.map((p) => (
-                  <button
-                    key={p}
-                    onClick={() => void respond(p)}
-                    className="rounded-full border border-white/10 bg-white/5 px-3.5 py-1.5 text-xs text-white/70 transition hover:bg-white/10 hover:text-white"
-                  >
-                    {p}
-                  </button>
-                ))}
-              </div>
-            </motion.div>
-          )}
-          {messages.map((m) => (
-            <motion.div
-              key={m.id}
-              initial={{ opacity: 0, y: 12, scale: 0.98 }}
-              animate={{ opacity: 1, y: 0, scale: 1 }}
-              transition={{ type: "spring", stiffness: 380, damping: 30 }}
-              className={`flex gap-3 ${
-                m.role === "user" ? "flex-row-reverse" : ""
-              }`}
-            >
-              <div
-                className={`flex size-8 shrink-0 items-center justify-center rounded-xl ${
-                  m.role === "aria"
-                    ? "bg-gradient-to-br from-iris-500 to-iris-600"
-                    : "bg-white/10"
-                }`}
+        <main
+          ref={scrollRef}
+          className="relative z-10 flex-1 min-h-0 space-y-5 overflow-y-auto px-4 sm:px-6 pb-4 pt-4"
+        >
+          <AnimatePresence initial={false}>
+            {/* Welcome screen */}
+            {messages.length === 0 && !thinking && (
+              <motion.div
+                key="welcome"
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.95 }}
+                transition={{ duration: 0.4, ease: [0.16, 1, 0.3, 1] }}
+                className="mx-auto my-auto max-w-xl text-center py-6 px-4"
               >
+                {/* Announcement badge */}
+                <div className="mb-5 inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.05] px-3.5 py-1 text-xs text-white/70 backdrop-blur-xl">
+                  <Sparkles className="size-3 text-iris-300" />
+                  <span>Real-Time Voice AI Interview Practice</span>
+                </div>
+
+                {/* Large Avatar orb */}
+                <div className="relative mx-auto mb-5 w-fit">
+                  <AvatarOrb color="violet" size="lg" shape="circle" blinking className="mx-auto" />
+                </div>
+                <h2 className="text-3xl sm:text-4xl font-semibold tracking-tight text-white">
+                  Meet{" "}
+                  <span className="bg-gradient-to-r from-iris-300 via-indigo-300 to-mint-400 bg-clip-text text-transparent">
+                    Aria
+                  </span>
+                </h2>
+                <p className="mt-2.5 text-sm leading-relaxed text-white/50 max-w-md mx-auto">
+                  Your conversational interview coach. Tap the mic and speak — Aria listens, thinks, and answers with natural voice. Or type below.
+                </p>
+                <div className="mt-7 flex flex-wrap justify-center gap-2">
+                  {PROMPTS.map((p) => (
+                    <button
+                      key={p}
+                      onClick={() => void respond(p)}
+                      className="group flex items-center gap-2 rounded-full border border-white/[0.08] bg-white/[0.04] px-4 py-2 text-xs text-white/70 transition-all duration-200 hover:border-iris-400/40 hover:bg-iris-500/10 hover:text-white active:scale-95"
+                    >
+                      <Sparkles className="size-3 text-iris-400 opacity-50 transition group-hover:opacity-100" />
+                      {p}
+                    </button>
+                  ))}
+                </div>
+              </motion.div>
+            )}
+
+            {/* Chat messages */}
+            {messages.map((m) => (
+              <motion.div
+                key={m.id}
+                initial={{ opacity: 0, y: 14, scale: 0.97 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                transition={{ type: "spring", stiffness: 360, damping: 28 }}
+                className={`flex gap-3 ${m.role === "user" ? "flex-row-reverse" : ""}`}
+              >
+                {/* Avatar */}
                 {m.role === "aria" ? (
-                  <Bot className="size-4" />
+                  <AvatarOrb color="violet" size="sm" shape="circle" blinking={false} />
                 ) : (
-                  <User className="size-4" />
+                  <div className="flex size-8 shrink-0 items-center justify-center rounded-2xl bg-white/10">
+                    <User className="size-4" />
+                  </div>
                 )}
-              </div>
-              <div
-                className={`max-w-[75%] rounded-2xl px-4 py-3 text-sm leading-relaxed ${
-                  m.role === "aria"
-                    ? "border border-white/10 bg-white/[0.06] text-white/90"
-                    : "bg-gradient-to-br from-iris-600 to-iris-500 text-white shadow-lg shadow-iris-600/25"
-                }`}
+
+                {/* Bubble */}
+                <div
+                  className={`max-w-[72%] rounded-2xl px-4 py-3 text-sm leading-relaxed shadow-lg ${
+                    m.role === "aria"
+                      ? "rounded-tl-sm border border-white/[0.08] bg-white/[0.05] text-white/88 backdrop-blur-xl shadow-black/20"
+                      : "rounded-tr-sm bg-gradient-to-br from-iris-600 to-iris-500 text-white shadow-iris-600/20"
+                  }`}
+                >
+                  {m.text}
+                </div>
+              </motion.div>
+            ))}
+
+            {/* ThinkingOrb while waiting for response */}
+            {thinking && (
+              <motion.div
+                key="thinking"
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0 }}
+                className="flex gap-3"
               >
-                {m.text}
-              </div>
-            </motion.div>
-          ))}
-          {thinking && <ThinkingBubble />}
-        </AnimatePresence>
-      </main>
+                <div className="flex size-8 shrink-0 items-center justify-center">
+                  <ThinkingOrb state="working" size={64} theme="dark" className="!size-8" />
+                </div>
+                <div className="flex items-center gap-2 rounded-2xl rounded-tl-sm border border-white/[0.08] bg-white/[0.05] px-4 py-2.5 text-xs text-white/40 backdrop-blur-xl">
+                  Aria is thinking…
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </main>
       )}
 
-      {/* composer */}
-      <footer className="relative z-10 px-6 pb-6">
+      {/* ── Composer ── */}
+      <footer className="relative z-10 px-5 pb-5">
+        {/* Notices */}
         {error && (
-          <p className="mx-auto mb-2 max-w-2xl text-center text-xs text-red-400">
+          <motion.p
+            initial={{ opacity: 0, y: 4 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="mx-auto mb-2.5 max-w-2xl text-center text-xs text-red-400"
+          >
             {error}
-          </p>
+          </motion.p>
         )}
         {playbackBlocked && (
-          <div className="mx-auto mb-2 flex max-w-2xl items-center justify-between gap-3 rounded-xl border border-amber-300/30 bg-amber-300/10 px-3 py-2">
-            <span className="text-xs text-amber-200">
-              Audio playback was blocked by the browser.
-            </span>
-            <Button
-              variant="outline"
-              onClick={() => void playAudio(lastAudioUrlRef.current)}
-            >
-              <Play /> Play reply
+          <div className="mx-auto mb-2.5 flex max-w-2xl items-center justify-between gap-3 rounded-2xl border border-amber-300/25 bg-amber-300/[0.07] px-4 py-2.5">
+            <span className="text-xs text-amber-200/80">Audio playback was blocked by the browser.</span>
+            <Button variant="outline" onClick={() => void playAudio(lastAudioUrlRef.current)} className="h-7 gap-1.5 px-3 py-0 text-[11px]">
+              <Play className="size-3" /> Play reply
             </Button>
           </div>
         )}
-        <div className="mx-auto flex max-w-2xl items-center gap-3">
-          <Button
-            onClick={onMicClick}
-            disabled={micBusy}
-            className={`relative size-12 shrink-0 rounded-2xl ${
-              speaking || thinking
-                ? "bg-white/15 shadow-none hover:bg-white/25"
-                : ""
-            }`}
-            aria-label={
-              stage === "listening"
-                ? "Stop listening"
-                : speaking || thinking
-                  ? "Interrupt and talk"
-                  : "Start talking"
-            }
-          >
-            {stage === "listening" && (
-              <span className="absolute inset-0 animate-pulse-ring rounded-2xl bg-iris-500/60" />
-            )}
-            {stage === "listening" ? (
-              <AudioLines className="size-5" />
-            ) : speaking || thinking ? (
-              <Mic className="size-5 animate-pulse" />
-            ) : (
-              <Mic className="size-5" />
-            )}
-          </Button>
 
-          <form onSubmit={onSubmitText} className="flex flex-1 gap-2">
-            <Input
-              value={draft}
-              onFocus={() => {
-                // opening a delivery window when the user starts typing keeps
-                // typed answers measured over the span they were composed
-                if (mode === "interview") face.beginTurn()
-              }}
-              onChange={(e) => setDraft(e.target.value)}
-              placeholder={
-                stage === "listening"
-                  ? "Listening…"
-                  : speaking
-                    ? "Interrupt with text…"
-                    : thinking
-                      ? "Type to interrupt…"
-                      : STAGE_LABEL[stage]
-              }
-              disabled={stage === "listening"}
-            />
-            <Button
-              type="submit"
-              disabled={
-                !draft.trim() ||
-                stage === "listening" ||
-                stage === "transcribing"
-              }
-            >
-              <Send />
-            </Button>
-          </form>
-        </div>
-
-        {/* waveform + status */}
-        <div className="mx-auto mt-3 flex h-8 max-w-2xl items-center gap-3">
-          <div className="flex h-8 flex-1 items-end gap-1">
-            {stage === "listening" ? (
-              levels.map((l, i) => (
-                <span
-                  key={i}
-                  className="w-1.5 rounded-full bg-iris-400 transition-[height] duration-75"
-                  style={{ height: `${Math.round(4 + l * 28)}px` }}
+        {/* Bolt-style composer — BorderBeam wraps while Aria is speaking */}
+        <div className="mx-auto max-w-2xl">
+          <ComposerBeamWrapper speaking={speaking}>
+            <div className="rounded-2xl border border-white/[0.08] bg-[#1e1e22] shadow-[0_0_0_1px_rgba(255,255,255,0.04),0_4px_24px_rgba(0,0,0,0.4)] overflow-hidden">
+              {/* Textarea row */}
+              <div className="px-4 pt-4 pb-2">
+                <textarea
+                  ref={textareaRef}
+                  value={draft}
+                  disabled={isListening}
+                  onFocus={() => { if (mode === "interview") face.beginTurn() }}
+                  onChange={(e) => setDraft(e.target.value)}
+                  onKeyDown={onKeyDown}
+                  placeholder={
+                    isListening ? "Listening…" :
+                    speaking ? "Interrupt with text…" :
+                    thinking ? "Type to interrupt…" :
+                    STAGE_LABEL[stage]
+                  }
+                  rows={1}
+                  className="w-full resize-none bg-transparent text-sm text-white/90 placeholder:text-white/30 outline-none disabled:opacity-50 min-h-[32px] max-h-[160px] leading-relaxed"
+                  style={{ height: "32px" }}
                 />
-              ))
-            ) : (
-              <span className="text-xs text-white/40">
-                {mode === "interview" && interview.analyzing
-                  ? "Reading your resume and writing tailored questions…"
-                  : mode === "interview" && interview.scoring
-                    ? "Scoring your answer…"
-                    : speaking
-                      ? "Aria is speaking — tap the mic or press Space to jump in"
-                      : thinking
-                        ? "Thinking — you can interrupt with voice or text"
-                        : STAGE_LABEL[stage]}
-              </span>
-            )}
-          </div>
-          <button
-            onClick={() => setAutoStop((v) => !v)}
-            title={
-              autoStop
-                ? "Your turn is sent after a pause. Turn off to stop recording only when you tap the mic."
-                : "Recording continues until you tap the mic. Turn on to send automatically after a pause."
-            }
-            className={`shrink-0 rounded-full border px-2.5 py-1 text-[10px] tracking-wide uppercase transition ${
-              autoStop
-                ? "border-mint-400/40 bg-mint-400/10 text-mint-400"
-                : "border-white/15 bg-white/5 text-white/50 hover:text-white/80"
-            }`}
-          >
-            {autoStop ? "auto-send on pause" : "manual stop"}
-          </button>
+              </div>
+              {/* Toolbar row */}
+              <div className="flex items-center gap-2 px-3 pb-3">
+                {/* Mic */}
+                <button
+                  onClick={onMicClick}
+                  disabled={micBusy}
+                  aria-label={isListening ? "Stop" : isThinkingOrSpeaking ? "Interrupt" : "Speak"}
+                  className={`relative flex size-9 shrink-0 items-center justify-center rounded-xl transition-all duration-200 disabled:pointer-events-none disabled:opacity-40 ${
+                    isListening
+                      ? "bg-gradient-to-br from-iris-500 to-iris-600 shadow-lg shadow-iris-600/40"
+                      : isThinkingOrSpeaking
+                        ? "bg-white/10 text-white/60 hover:bg-white/15"
+                        : "bg-gradient-to-br from-iris-600 to-iris-500 shadow-md shadow-iris-600/30 hover:scale-105"
+                  }`}
+                >
+                  {isListening && <span className="absolute inset-0 animate-pulse-ring rounded-xl bg-iris-500/50" />}
+                  {isListening ? <AudioLines className="size-4" /> : <Mic className="size-4" />}
+                </button>
+                {/* Status */}
+                <div className="flex flex-1 items-center gap-2 min-w-0">
+                  {isListening ? (
+                    <div className="flex h-6 items-end gap-0.5">
+                      {levels.map((l, i) => (
+                        <span key={i} className="w-1 rounded-full bg-iris-400 transition-[height] duration-75" style={{ height: `${Math.round(3 + l * 22)}px` }} />
+                      ))}
+                    </div>
+                  ) : speaking ? (
+                    <div className="flex items-center gap-2 text-iris-300 min-w-0">
+                      <div className="speaking-bars shrink-0"><span /><span /><span /><span /><span /></div>
+                      <span className="text-xs truncate">Speaking — tap mic or Space to jump in</span>
+                    </div>
+                  ) : thinking ? (
+                    <span className="text-xs text-white/35">Thinking — interrupt with voice or text</span>
+                  ) : (
+                    <span className="text-xs text-white/25">
+                      {mode === "interview" && interview.analyzing ? "Analysing resume…" :
+                       mode === "interview" && interview.scoring ? "Scoring answer…" :
+                       "Space · push-to-talk · Shift+Enter for newline"}
+                    </span>
+                  )}
+                </div>
+                {/* Auto toggle */}
+                <button
+                  onClick={() => setAutoStop((v) => !v)}
+                  className={`shrink-0 rounded-full border px-2.5 py-1 text-[10px] tracking-wide uppercase transition ${
+                    autoStop ? "border-mint-400/40 bg-mint-400/10 text-mint-400" : "border-white/10 bg-white/[0.04] text-white/35 hover:text-white/60"
+                  }`}
+                >
+                  {autoStop ? "auto" : "manual"}
+                </button>
+                {/* Send */}
+                <button
+                  onClick={() => onSubmitText()}
+                  disabled={!draft.trim() || isListening || stage === "transcribing"}
+                  className="flex size-9 items-center justify-center rounded-xl bg-iris-600 text-white shadow-md shadow-iris-600/30 transition hover:bg-iris-500 disabled:pointer-events-none disabled:opacity-30"
+                >
+                  <Send className="size-4" />
+                </button>
+              </div>
+            </div>
+          </ComposerBeamWrapper>
         </div>
         <audio ref={audioRef} hidden />
       </footer>
 
+      {/* ── Delivery meter ── */}
       {mode === "interview" && interview.questions.length > 0 && (
         <DeliveryMeter
           videoRef={face.videoRef}
@@ -569,38 +589,29 @@ export default function App() {
         />
       )}
 
+      {/* ── Debug panel ── */}
       {showDebug && (
-        <DebugPanel
-          debug={debug}
-          stage={stage}
-          error={error}
-          onClose={() => setShowDebug(false)}
-        />
+        <DebugPanel debug={debug} stage={stage} error={error} onClose={() => setShowDebug(false)} />
       )}
     </div>
   )
 }
 
-function ThinkingBubble() {
-  return (
-    <motion.div
-      initial={{ opacity: 0, y: 10 }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0 }}
-      className="flex gap-3"
-    >
-      <div className="flex size-8 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-iris-500 to-iris-600">
-        <Bot className="size-4" />
-      </div>
-      <div className="flex items-center gap-1.5 rounded-2xl border border-white/10 bg-white/[0.06] px-4 py-3.5">
-        {[0, 1, 2].map((i) => (
-          <span
-            key={i}
-            className="size-1.5 animate-bounce rounded-full bg-white/50"
-            style={{ animationDelay: `${i * 150}ms` }}
-          />
-        ))}
-      </div>
-    </motion.div>
-  )
+/** Wraps children in BorderBeam when Aria is speaking, passthrough otherwise */
+function ComposerBeamWrapper({ speaking, children }: { speaking: boolean; children: React.ReactNode }) {
+  if (speaking) {
+    return (
+      <BorderBeam
+        size="sm"
+        colorVariant="ocean"
+        strength={0.35}
+        brightness={0.8}
+        glowSize={0.4}
+        className="rounded-2xl"
+      >
+        {children}
+      </BorderBeam>
+    )
+  }
+  return <>{children}</>
 }
