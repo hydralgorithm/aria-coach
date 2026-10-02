@@ -602,11 +602,12 @@ function ComposerBeamWrapper({ speaking, children }: { speaking: boolean; childr
   if (speaking) {
     return (
       <BorderBeam
-        size="sm"
+        size="md"
         colorVariant="ocean"
-        strength={0.35}
-        brightness={0.8}
-        glowSize={0.4}
+        strength={0.85}
+        brightness={1.0}
+        glowSize={0.5}
+        borderRadius={16}
         className="rounded-2xl"
       >
         {children}
