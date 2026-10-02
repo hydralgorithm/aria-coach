@@ -7,6 +7,7 @@ import io
 import os
 import shutil
 import time
+import tempfile
 import uuid
 from pathlib import Path
 
@@ -18,8 +19,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-import brain
-import coach
+from . import brain, coach, tts
 
 app = FastAPI(title="Aria backend")
 
@@ -30,7 +30,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-AUDIO_DIR = Path("static/audio")
+# Determine the project root (where static/ and frontend/ live)
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent
+AUDIO_DIR = _PROJECT_ROOT / "static" / "audio"
 AUDIO_DIR.mkdir(parents=True, exist_ok=True)
 
 # webm/opus (MediaRecorder default) -> 16 kHz mono WAV for Whisper
@@ -145,34 +147,71 @@ async def transcribe(request: Request) -> dict:
     return {"text": text}
 
 
-def synthesize_audio(text: str, voice: str | None = None) -> str:
-    """Render text with Kokoro (local) and return the served audio URL."""
-    import tts as tts_mod
-
-    def render(v: str) -> list:
-        out: list = []
-        for result in tts_mod.get_pipeline()(tts_mod._clean(text), voice=v):
-            audio = getattr(result, "audio", None)
-            if audio is None:
-                continue
-            if hasattr(audio, "detach"):
-                audio = audio.detach().cpu().float().numpy()
-            out.append(audio)
-        return out
-
-    try:
-        segments = render(voice or tts_mod.VOICE)
-    except Exception as exc:  # a persona voice pack may be unavailable
-        print(f"  [tts] voice '{voice}' failed ({exc}) — falling back")
-        segments = render(tts_mod.VOICE)
+async def synthesize_audio(text: str, voice: str | None = None) -> str:
+    """Render text with Kokoro ONNX (local, high performance) and return the served audio URL."""
+    clean_text = tts._clean(text)
+    if not clean_text:
+        clean_text = text
 
     filename = f"{uuid.uuid4().hex}.wav"
-    if segments:
-        merged = np.concatenate(segments) if len(segments) > 1 else segments[0]
-        sf.write(AUDIO_DIR / filename, merged, 24000)
-    else:
-        sf.write(AUDIO_DIR / filename, np.zeros(1, dtype="float32"), 24000)
-    return f"/static/audio/{filename}"
+    dest = AUDIO_DIR / filename
+
+    # Primary: local Kokoro ONNX
+    try:
+        samples, sr = tts.generate(clean_text, voice=voice)
+        if len(samples) > 0:
+            sf.write(str(dest), samples, sr)
+            return f"/static/audio/{filename}"
+    except Exception as exc:
+        print(f"  [tts] Kokoro ONNX failed ({exc}) — attempting fallback")
+
+    # Secondary fallback: edge-tts if available
+    try:
+        import edge_tts
+
+        mp3_name = f"{uuid.uuid4().hex}.mp3"
+        mp3_dest = AUDIO_DIR / mp3_name
+        communicate = edge_tts.Communicate(clean_text, "en-US-AvaNeural", rate="+18%")
+        await communicate.save(str(mp3_dest))
+        if mp3_dest.exists() and mp3_dest.stat().st_size > 0:
+            return f"/static/audio/{mp3_name}"
+    except Exception as exc:
+        print(f"  [tts] edge-tts fallback failed: {exc}")
+
+    # Last resort: write short silent WAV so frontend audio element doesn't fail
+    try:
+        sf.write(str(dest), np.zeros(4000, dtype="float32"), 24000)
+        return f"/static/audio/{filename}"
+    except Exception as exc:
+        print(f"  [tts] silent fallback failed: {exc}")
+        return f"/static/audio/{filename}"
+
+
+@app.get("/api/health")
+async def health() -> dict:
+    """Liveness probe — returns OK plus diagnostics."""
+    import sys
+    kokoro_ok = False
+    try:
+        import kokoro_onnx  # noqa: F401
+        kokoro_ok = tts.MODEL_PATH.exists() and tts.VOICES_PATH.exists()
+    except ImportError:
+        pass
+    sf_ok = False
+    try:
+        import soundfile  # noqa: F401
+        sf_ok = True
+    except ImportError:
+        pass
+    return {
+        "ok": True,
+        "python": sys.version,
+        "executable": sys.executable,
+        "kokoro_onnx": kokoro_ok,
+        "soundfile": sf_ok,
+        "model": brain.MODEL,
+        "tts_voice": tts.VOICE,
+    }
 
 
 @app.post("/api/chat")
@@ -183,7 +222,11 @@ async def chat(req: ChatRequest) -> dict:
     except Exception as exc:
         raise HTTPException(502, f"LLM failed: {exc}") from exc
 
-    audio_url = synthesize_audio(reply)
+    try:
+        audio_url = await synthesize_audio(reply)
+    except Exception as exc:
+        print(f"  [tts] synthesize_audio failed: {exc}")
+        audio_url = ""
     print(f"  [turn] {time.time() - started:.1f}s total")
     return {"reply": reply, "audio_url": audio_url}
 
@@ -226,11 +269,16 @@ async def interview_resume(
         f"  [interview] resume parsed via {result['parse'].get('method')} "
         f"in {time.time() - started:.1f}s ({persona})"
     )
+    try:
+        audio_url = await synthesize_audio(intro, voice=coach.persona_voice())
+    except Exception as exc:
+        print(f"  [tts] resume audio failed: {exc}")
+        audio_url = ""
     return {
         **result,
         "persona_info": coach.persona_public(coach._state["persona"]),
         "current_question": first,
-        "audio_url": synthesize_audio(intro, voice=coach.persona_voice()),
+        "audio_url": audio_url,
     }
 
 
@@ -242,9 +290,14 @@ async def interview_persona(req: ChatRequest) -> dict:
         raise HTTPException(400, str(exc)) from exc
     info = coach.persona_public(coach._state["persona"])
     greeting = f"Switching mode. I'm now {info['label']}. {info['tagline']}."
+    try:
+        audio_url = await synthesize_audio(greeting, voice=coach.persona_voice())
+    except Exception as exc:
+        print(f"  [tts] persona audio failed: {exc}")
+        audio_url = ""
     return {
         "persona": info,
-        "audio_url": synthesize_audio(greeting, voice=coach.persona_voice()),
+        "audio_url": audio_url,
     }
 
 
@@ -260,9 +313,14 @@ async def interview_answer(req: ChatRequest) -> dict:
         f"  [interview] answer scored in {time.time() - started:.1f}s "
         f"({result['score']}/100, {coach._state['persona']})"
     )
+    try:
+        audio_url = await synthesize_audio(spoken, voice=coach.persona_voice())
+    except Exception as exc:
+        print(f"  [tts] answer audio failed: {exc}")
+        audio_url = ""
     return {
         **result,
-        "audio_url": synthesize_audio(spoken, voice=coach.persona_voice()),
+        "audio_url": audio_url,
     }
 
 
@@ -278,6 +336,6 @@ async def interview_reset() -> dict:
 
 
 # serve generated audio BEFORE the SPA catch-all mount
-app.mount("/static", StaticFiles(directory="static"), name="static")
+app.mount("/static", StaticFiles(directory=str(_PROJECT_ROOT / "static")), name="static")
 # serve frontend build last (catch-all)
-app.mount("/", StaticFiles(directory="frontend/dist", html=True), name="spa")
+app.mount("/", StaticFiles(directory=str(_PROJECT_ROOT / "frontend" / "dist"), html=True), name="spa")

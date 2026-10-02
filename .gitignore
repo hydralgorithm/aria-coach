@@ -6,3 +6,4 @@ __pycache__/
 # espeak-ng-loader unpacks espeak-ng.dll into a temp dir in the CWD on start
 tmp*/
 static/
+models/

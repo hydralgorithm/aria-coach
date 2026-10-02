@@ -14,8 +14,7 @@ from __future__ import annotations
 import json
 import re
 
-import brain
-import parsing
+from . import brain, parsing
 
 # --------------------------------------------------------------------- personas
 
@@ -88,7 +87,7 @@ PERSONAS: dict[str, dict] = {
     "kind": {
         "label": "The Kind Soul",
         "tagline": "Supportive mentor — hints, structure, second chances",
-        "icon": "heart",
+        "icon": "mint",
         "accent": "mint",
         "voice": "af_bella",
         "score_bias": 8,
@@ -255,7 +254,6 @@ def _json_call(system: str, user: str, max_tokens: int = 1800) -> dict:
         ],
         temperature=0.5,
         max_tokens=max_tokens,
-        reasoning_format="hidden",
         response_format={"type": "json_object"},
     )
     raw = completion.choices[0].message.content or ""

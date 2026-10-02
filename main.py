@@ -7,9 +7,16 @@ Usage:
 
 from __future__ import annotations
 
-import argparse
 import sys
 import time
+from pathlib import Path
+
+# Ensure the project root is in sys.path for imports
+PROJECT_ROOT = Path(__file__).resolve().parent
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+import argparse
 
 # Windows consoles default to cp1252, which crashes (UnicodeEncodeError) on
 # smart punctuation the model emits: ' — – ‑ etc. Force UTF-8 output.
@@ -19,9 +26,8 @@ for _stream in (sys.stdout, sys.stderr):
     except Exception:
         pass
 
-import brain
-import tts
-from audio import record_until_silence
+from backend import brain, tts
+from backend.audio import record_until_silence
 
 BANNER = """
   ============================================

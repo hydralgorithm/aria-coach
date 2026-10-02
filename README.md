@@ -35,7 +35,7 @@ cd frontend && npm install && npm run build && cd ..
 
 # 2. start the backend (serves the UI + API on one port)
 source .venv/bin/activate
-uvicorn server:app --port 8000
+uvicorn backend.server:app --port 8000
 
 # 3. open http://localhost:8000 in Chrome
 ```

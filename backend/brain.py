@@ -10,7 +10,8 @@ from groq import Groq
 load_dotenv()
 from groq.types.chat import ChatCompletion
 
-MODEL = "openai/gpt-oss-120b"  # llama-3.3-70b was retired from Groq
+# Available fast chat models on Groq: "qwen/qwen3.8-27b", "openai/gpt-oss-120b"
+MODEL = os.environ.get("GROQ_MODEL", "qwen/qwen3.8-27b")
 STT_MODEL = "whisper-large-v3-turbo"
 
 client: Groq | None = None
@@ -40,16 +41,18 @@ def reset_history() -> None:
 
 
 def chat(user_text: str) -> str:
-    """Send text to Llama on Groq; return the assistant reply."""
+    """Send text to LLM on Groq; return the assistant reply."""
     _history.append({"role": "user", "content": user_text})
     completion: ChatCompletion = get_client().chat.completions.create(
         model=MODEL,
         messages=[{"role": "system", "content": SYSTEM_PROMPT}, *_history],
         temperature=0.7,
         max_tokens=512,
-        reasoning_format="hidden",  # gpt-oss thinks out loud; we only want the answer
     )
-    reply = completion.choices[0].message.content or ""
+    choice = completion.choices[0]
+    reply = choice.message.content or ""
+    if not reply and hasattr(choice.message, "reasoning") and choice.message.reasoning:
+        reply = choice.message.reasoning
     _history.append({"role": "assistant", "content": reply})
     return reply
 
