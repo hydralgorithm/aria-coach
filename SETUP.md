@@ -239,11 +239,11 @@ All personas use high-fidelity, local Kokoro voices:
 
 | Mode | Personality | Voice | Style |
 |---|---|---|---|
-| **The Panel** | Balanced structured interview | `af_heart` | Neutral, professional, competent |
-| **The High-Bar Manager** | Demanding, evidence-obsessed | `am_michael` | Deep, challenging, analytical |
-| **The Trickster** | Adversarial, tests composure | `bm_george` | Sharp, British inflection |
-| **The Kind Soul** | Supportive mentor | `af_bella` | Warm, encouraging, patient |
-| **The Rapid-Fire Recruiter** | Fast screening round | `am_adam` | Energetic, direct, brisk |
+| **The Structured Panel** | Balanced competency-based interview | `af_heart` | Neutral, professional, competent |
+| **The Bar-Raiser** | High-bar, evidence-obsessed | `am_michael` | Deep, challenging, analytical |
+| **The Talent Coach** | Supportive coaching round | `af_bella` | Warm, encouraging, patient |
+| **The Phone Screener** | Fast first-round screen | `am_adam` | Energetic, direct, brisk |
+| **The Stress Interviewer** *(advanced)* | Adversarial, tests composure | `bm_george` | Sharp, British inflection |
 
 ---
 
@@ -264,3 +264,10 @@ If you have multiple Python versions installed (e.g. Python 3.14 alongside 3.12)
 ### Missing ffmpeg
 If mic transcription returns `ffmpeg not found`:
 - Run `winget install --id Gyan.FFmpeg -e` and open a fresh terminal so the updated `PATH` takes effect.
+
+### Offline / no Groq key (local fallback)
+Aria uses Groq by default. When the cloud is unreachable it falls back to a local Ollama model if one is running:
+- Install Ollama (<https://ollama.com>) and pull a model: `ollama pull llama3.2:3b`.
+- Optionally set `OLLAMA_MODEL` / `OLLAMA_HOST` in `.env`.
+- Check `/api/health` → `engines.llm_fallback`; the header's **Where this runs** panel shows the live split.
+- Text-to-speech (Kokoro) and the camera check already run locally; speech-to-text still needs the cloud.

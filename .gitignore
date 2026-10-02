@@ -7,3 +7,7 @@ __pycache__/
 tmp*/
 static/
 models/
+
+# local practice history (on-device, deletable, exportable)
+aria_history.db
+*.db

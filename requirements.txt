@@ -1,14 +1,27 @@
+# LLM & Voice API
 groq>=0.11
+
+# Audio capture & playback
 sounddevice>=0.4.6
+soundfile>=0.12
 numpy>=2.0
+
+# Kokoro local TTS (ONNX)
 kokoro-onnx>=0.6.0
 onnxruntime>=1.20.0
-soundfile>=0.12
-python-dotenv>=1.0
-loguru>=0.7,<0.8
+
+# Backend Web Server
 fastapi>=0.115
 uvicorn[standard]>=0.30
 python-multipart>=0.0.9
+pydantic>=2.0
+
+# Resume parsing & OCR
 pypdf>=5.0
 pymupdf>=1.24
+pillow>=10.0
 pytesseract>=0.3.10
+
+# Utilities & Config
+python-dotenv>=1.0
+loguru>=0.7,<0.8

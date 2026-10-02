@@ -15,9 +15,18 @@ import {
   GraduationCap,
   Award,
   Search,
-  Eye,
-  Smile,
+  ScanFace,
+  FileSearch,
+  Loader2,
+  Target,
+  XCircle,
+  Circle,
   Video,
+  Repeat,
+  X,
+  ArrowUpRight,
+  ArrowDownRight,
+  Activity,
 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
@@ -27,7 +36,14 @@ import { ThinkingOrb } from "@/components/ui/thinking-orbs"
 import { BorderBeam } from "@/components/ui/border-beam"
 import type { ChatStage } from "@/hooks/useVoice"
 import type {
-  DeliverySummaryReport,
+  SetupSummaryReport,
+  ParseAudit,
+  PendingAnswer,
+  RetryTarget,
+  RetryDiff,
+  BehaviourStats,
+  EvidenceItem,
+  Coverage,
   PersonaInfo,
   Question,
   ScoreRecord,
@@ -86,6 +102,10 @@ const DIMS: [string, string, number][] = [
   ["self_awareness", "Self-awareness", 15],
 ]
 
+const DIM_LABELS: Record<string, string> = Object.fromEntries(
+  DIMS.map(([key, label]) => [key, label])
+)
+
 type Props = {
   filename: string
   profile: string
@@ -98,7 +118,10 @@ type Props = {
   analyzing: boolean
   scoring: boolean
   error: string | null
-  onUpload: (file: File) => void
+  onUpload: (file: File, jd: string) => void
+  onApplyJd: (jd: string) => void
+  jd?: string
+  coverage?: Coverage
   onPersona: (id: string) => void
   onReset: () => void
   stage: ChatStage
@@ -106,7 +129,24 @@ type Props = {
   speaking: boolean
   start: () => void
   stop: () => void
-  deliverySummary?: DeliverySummaryReport | null
+  pending: PendingAnswer | null
+  onConfirmPending: (text: string, edited: boolean) => void
+  onDiscardPending: () => void
+  retrying: boolean
+  retryTarget: RetryTarget | null
+  retryResults: Record<number, ScoreRecord>
+  onRetry: (question: Question, index: number) => void
+  onRetryAnswer: (text: string) => void
+  onCancelRetry: () => void
+  behaviour?: BehaviourStats
+  setupSummary?: SetupSummaryReport | null
+  parse?: {
+    method?: string
+    pages?: number
+    warnings?: string[]
+    text?: string
+    audit?: ParseAudit
+  }
 }
 
 export default function InterviewView({
@@ -122,6 +162,9 @@ export default function InterviewView({
   scoring,
   error,
   onUpload,
+  onApplyJd,
+  jd,
+  coverage,
   onPersona,
   onReset,
   stage,
@@ -129,10 +172,22 @@ export default function InterviewView({
   speaking,
   start,
   stop,
-  deliverySummary,
+  pending,
+  onConfirmPending,
+  onDiscardPending,
+  retrying,
+  retryTarget,
+  retryResults,
+  onRetry,
+  onRetryAnswer,
+  onCancelRetry,
+  behaviour,
+  setupSummary,
+  parse,
 }: Props) {
   const fileRef = useRef<HTMLInputElement>(null)
   const [dragging, setDragging] = useState(false)
+  const [jdDraft, setJdDraft] = useState("")
   const listening = stage === "listening"
 
   if (questions.length === 0) {
@@ -180,11 +235,16 @@ export default function InterviewView({
                   </div>
                   <span className="min-w-0">
                     <span
-                      className={`block text-sm font-semibold leading-snug ${
+                      className={`flex items-center gap-1.5 text-sm font-semibold leading-snug ${
                         active ? accent.text : "text-white/90"
                       }`}
                     >
                       {p.label}
+                      {p.advanced && (
+                        <span className="rounded-full border border-white/15 bg-white/5 px-1.5 py-px text-[9px] font-medium uppercase tracking-wider text-white/45">
+                          advanced
+                        </span>
+                      )}
                     </span>
                     <span className="mt-0.5 block text-xs leading-relaxed text-white/45">
                       {p.tagline}
@@ -214,7 +274,7 @@ export default function InterviewView({
                 e.preventDefault()
                 setDragging(false)
                 const file = e.dataTransfer.files?.[0]
-                if (file) onUpload(file)
+                if (file) onUpload(file, jdDraft)
               }}
               onClick={() => fileRef.current?.click()}
               className={`cursor-pointer rounded-2xl border-2 border-dashed px-6 py-8 transition-all duration-200 ${
@@ -256,10 +316,24 @@ export default function InterviewView({
           className="hidden"
           onChange={(e) => {
             const file = e.target.files?.[0]
-            if (file) onUpload(file)
+            if (file) onUpload(file, jdDraft)
             e.target.value = ""
           }}
         />
+
+        {/* Optional job description, captured before the first upload */}
+        <div className="mt-4 text-left">
+          <p className="mb-1.5 text-[10px] uppercase tracking-widest text-white/35">
+            Job description (optional) — grounds the questions in the role
+          </p>
+          <textarea
+            value={jdDraft}
+            onChange={(e) => setJdDraft(e.target.value)}
+            rows={4}
+            placeholder="Paste the job description here, then choose your resume. Questions will be generated from the gaps it finds."
+            className="w-full resize-y rounded-2xl border border-white/12 bg-white/[0.03] px-3 py-2 text-xs leading-relaxed text-white/85 outline-none focus:border-iris-400/40"
+          />
+        </div>
 
         {error && (
           <p className="mt-4 rounded-xl border border-red-400/30 bg-red-500/10 px-3 py-2 text-xs text-red-300">
@@ -348,6 +422,35 @@ export default function InterviewView({
               .join(" · ")}
           </p>
         )}
+
+        {parse?.audit && <ParseAuditPanel parse={parse} />}
+      </Card>
+
+      {/* Job description grounding: requirement x evidence x confidence */}
+      <Card className="p-4">
+        <div className="flex items-center justify-between gap-2">
+          <p className="flex items-center gap-1.5 text-xs text-white/70">
+            <Target className="size-3.5 text-iris-300" /> Job description
+            grounding
+          </p>
+          {(coverage?.requirements?.length ?? 0) > 0 && (
+            <span className="text-[10px] text-white/45">
+              {coverage?.matched ?? 0} matched · {coverage?.gaps ?? 0} gaps
+            </span>
+          )}
+        </div>
+
+        {answers.length === 0 ? (
+          <JdEditor initial={jd ?? ""} busy={analyzing} onApply={onApplyJd} />
+        ) : (
+          <p className="mt-1 text-[11px] text-white/40">
+            Questions are locked once you start answering.
+          </p>
+        )}
+
+        {(coverage?.requirements?.length ?? 0) > 0 && (
+          <CoverageList coverage={coverage!} />
+        )}
       </Card>
 
       {/* Switch interviewer mid-session */}
@@ -374,6 +477,11 @@ export default function InterviewView({
                 <AvatarOrb color={orb.color} shape={orb.shape} size="sm" blinking={false} />
               </div>
               {p.label}
+              {p.advanced && (
+                <span className="text-[8px] uppercase tracking-wider text-white/35">
+                  advanced
+                </span>
+              )}
             </button>
           )
         })}
@@ -406,6 +514,31 @@ export default function InterviewView({
           </span>
         )}
       </div>
+
+      {/* transcript gate — what the mic heard, editable, before any score */}
+      {pending && (
+        <TranscriptGate
+          key={pending.text}
+          pending={pending}
+          onConfirm={onConfirmPending}
+          onDiscard={onDiscardPending}
+        />
+      )}
+
+      {/* retry the same question, out-of-band from the question sequence */}
+      {retryTarget && (
+        <RetryCard
+          target={retryTarget}
+          stage={stage}
+          levels={levels}
+          speaking={speaking}
+          retrying={retrying}
+          start={start}
+          stop={stop}
+          onRetryAnswer={onRetryAnswer}
+          onCancel={onCancelRetry}
+        />
+      )}
 
       {/* current question + mic */}
       <AnimatePresence mode="wait">
@@ -475,7 +608,7 @@ export default function InterviewView({
                 <div className="mt-5 flex items-center gap-3">
                   <button
                     onClick={listening ? stop : start}
-                    disabled={scoring || speaking}
+                    disabled={scoring || speaking || !!pending}
                     className={`relative flex size-12 shrink-0 items-center justify-center rounded-2xl transition-all duration-200 disabled:pointer-events-none disabled:opacity-40 ${
                       listening
                         ? "bg-gradient-to-br from-rose-500 to-red-500 shadow-lg shadow-red-500/40"
@@ -542,51 +675,63 @@ export default function InterviewView({
                 </div>
               </div>
 
-              {deliverySummary?.available && (
+              {behaviour && behaviour.answered > 0 && (
                 <div className="mt-4 border-t border-white/10 pt-3">
                   <p className="flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-iris-300">
-                    <Video className="size-3" /> delivery across the whole session
-                    {deliverySummary.avg_delivery_score != null && (
-                      <span className="ml-auto text-white/60">
-                        {deliverySummary.avg_delivery_score}/100 avg
-                      </span>
-                    )}
+                    <Activity className="size-3" /> confidence, measured as
+                    behaviour
                   </p>
-                  <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
-                    <Stat
-                      label="engagement"
-                      value={`${deliverySummary.avg_engagement_pct ?? 0}%`}
-                    />
-                    <Stat
-                      label="warmth"
-                      value={`${deliverySummary.avg_smile_pct ?? 0}%`}
-                    />
-                    <Stat
-                      label="tension"
-                      value={`${deliverySummary.avg_tension_pct ?? 0}%`}
-                    />
+                  <div className="mt-2 grid grid-cols-4 gap-2">
+                    <Stat label="answered" value={`${behaviour.answered}`} />
+                    <Stat label="corrected" value={`${behaviour.corrected}`} />
+                    <Stat label="retried" value={`${behaviour.retried}`} />
+                    <Stat label="improved" value={`${behaviour.improved}`} />
+                  </div>
+                  <p className="mt-2 text-[10px] text-white/35">
+                    Choices you made across your local practice history — never
+                    read from your face.
+                  </p>
+                </div>
+              )}
+
+              {setupSummary?.available && (
+                <div className="mt-4 border-t border-white/10 pt-3">
+                  <p className="flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-iris-300">
+                    <Video className="size-3" /> camera setup across the session
+                  </p>
+                  <div className="mt-2 grid grid-cols-3 gap-2">
                     <Stat
                       label="face visible"
-                      value={`${deliverySummary.face_visible_pct ?? 0}%`}
+                      value={`${setupSummary.face_visible_pct ?? 0}%`}
+                    />
+                    <Stat
+                      label="facing camera"
+                      value={`${setupSummary.avg_facing_pct ?? 0}%`}
+                    />
+                    <Stat
+                      label="answers checked"
+                      value={`${setupSummary.answers_analysed ?? 0}`}
                     />
                   </div>
-                  {(deliverySummary.notes?.length ?? 0) > 0 && (
+                  {(setupSummary.notes?.length ?? 0) > 0 && (
                     <ul className="mt-3 space-y-1">
-                      {deliverySummary.notes?.map((n, i) => (
+                      {setupSummary.notes?.map((n, i) => (
                         <li key={i} className="flex gap-2 text-xs text-white/70">
-                          <TrendingUp className="mt-0.5 size-3.5 shrink-0 text-mint-400" />
+                          <ScanFace className="mt-0.5 size-3.5 shrink-0 text-mint-400" />
                           {n}
                         </li>
                       ))}
                     </ul>
                   )}
-                  {(deliverySummary.multi_face_flags ?? 0) > 0 && (
+                  {(setupSummary.multi_face_flags ?? 0) > 0 && (
                     <p className="mt-2 text-[10px] text-amber-300">
-                      {deliverySummary.multi_face_flags} answer(s) had another
-                      person visible in frame — real interviews treat that
-                      seriously.
+                      {setupSummary.multi_face_flags} answer(s) had another
+                      person visible in frame.
                     </p>
                   )}
+                  <p className="mt-2 text-[10px] text-white/35">
+                    Framing and visibility only — never emotion, never scored.
+                  </p>
                 </div>
               )}
             </Card>
@@ -601,10 +746,179 @@ export default function InterviewView({
       )}
 
       {/* scored answers */}
-      {[...answers].reverse().map((a, i) => (
-        <ScoreCard key={answers.length - i} record={a} />
-      ))}
+      {answers
+        .map((record, index) => ({ record, index }))
+        .reverse()
+        .map(({ record, index }) => (
+          <ScoreCard
+            key={index}
+            record={record}
+            question={questions[index]}
+            index={index}
+            retry={retryResults[record.question_id ?? -1]}
+            retrying={retrying}
+            retryTarget={retryTarget}
+            onRetry={onRetry}
+          />
+        ))}
     </div>
+  )
+}
+
+function TranscriptGate({
+  pending,
+  onConfirm,
+  onDiscard,
+}: {
+  pending: PendingAnswer
+  onConfirm: (text: string, edited: boolean) => void
+  onDiscard: () => void
+}) {
+  // keyed by the transcript in the parent, so a new answer remounts this box
+  const [text, setText] = useState(pending.text)
+  const edited = text.trim() !== pending.text.trim()
+
+  return (
+    <Card className="border-amber-300/30 bg-amber-300/[0.06] p-4">
+      <div className="flex items-center gap-2">
+        <Mic className="size-4 text-amber-300" />
+        <p className="text-sm font-medium text-white/90">
+          Here's what the mic heard
+        </p>
+      </div>
+      <p className="mt-1 text-xs leading-relaxed text-white/50">
+        This is the transcript Aria will score — not what you meant. Fix any
+        misheard words, then continue. Nothing is scored until you confirm.
+      </p>
+      <textarea
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        rows={4}
+        className="mt-2 w-full resize-y rounded-xl border border-white/12 bg-black/30 px-3 py-2 text-sm leading-relaxed text-white/90 outline-none focus:border-amber-300/40"
+      />
+      <div className="mt-2 flex flex-wrap items-center gap-2">
+        <Button onClick={() => onConfirm(text, edited)} disabled={!text.trim()}>
+          <CheckCircle2 /> Score this answer
+        </Button>
+        <Button variant="ghost" onClick={onDiscard}>
+          Discard
+        </Button>
+        {edited && (
+          <span className="text-[10px] text-amber-200/80">
+            edited — the score will reflect your corrected words
+          </span>
+        )}
+      </div>
+    </Card>
+  )
+}
+
+/**
+ * Retry an already-answered question out-of-band.
+ *
+ * Same question, same rubric, same score maths as the first attempt (persona
+ * bias was deleted in step 1), so the two scores are genuinely comparable. The
+ * result is shown as a side-by-side diff on the original scorecard.
+ */
+function RetryCard({
+  target,
+  stage,
+  levels,
+  speaking,
+  retrying,
+  start,
+  stop,
+  onRetryAnswer,
+  onCancel,
+}: {
+  target: RetryTarget
+  stage: ChatStage
+  levels: number[]
+  speaking: boolean
+  retrying: boolean
+  start: () => void
+  stop: () => void
+  onRetryAnswer: (text: string) => void
+  onCancel: () => void
+}) {
+  const [text, setText] = useState("")
+  const listening = stage === "listening"
+
+  return (
+    <Card className="border-iris-400/30 bg-iris-500/[0.08] p-4">
+      <div className="flex items-start justify-between gap-3">
+        <p className="flex items-center gap-2 text-sm font-medium text-white/90">
+          <Repeat className="size-4 text-iris-300" /> Retry this question
+        </p>
+        <Button variant="ghost" size="icon" onClick={onCancel} title="Cancel retry">
+          <X />
+        </Button>
+      </div>
+      <p className="mt-2 text-sm text-white/80">{target.question.question}</p>
+      <p className="mt-1 text-[11px] leading-relaxed text-white/45">
+        Same question, same rubric. Aria will show you exactly what changed —
+        including any numbers you added.
+      </p>
+
+      <div className="mt-3 flex items-center gap-3">
+        <button
+          onClick={listening ? stop : start}
+          disabled={retrying || speaking}
+          aria-label={listening ? "Stop" : "Answer retry out loud"}
+          className={`relative flex size-10 shrink-0 items-center justify-center rounded-2xl transition-all duration-200 disabled:pointer-events-none disabled:opacity-40 ${
+            listening
+              ? "bg-gradient-to-br from-rose-500 to-red-500 shadow-lg shadow-red-500/40"
+              : "bg-gradient-to-br from-iris-600 to-iris-500 shadow-lg shadow-iris-600/35 hover:scale-105"
+          }`}
+        >
+          {listening && (
+            <span className="absolute inset-0 animate-pulse-ring rounded-2xl bg-red-500/50" />
+          )}
+          {listening ? (
+            <AudioLines className="size-5 text-white" />
+          ) : (
+            <Mic className="size-5 text-white" />
+          )}
+        </button>
+        <div className="flex h-7 flex-1 items-end gap-0.5">
+          {listening ? (
+            levels.map((l, i) => (
+              <span
+                key={i}
+                className="w-1 rounded-full bg-rose-400/90 transition-[height] duration-75"
+                style={{ height: `${Math.round(3 + l * 24)}px` }}
+              />
+            ))
+          ) : (
+            <span className="text-xs text-white/40">
+              {speaking
+                ? "Aria is speaking… (tap mic or Space to jump in)"
+                : "Tap the mic and answer again, or type below"}
+            </span>
+          )}
+        </div>
+      </div>
+
+      <textarea
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        rows={3}
+        placeholder="Or type your improved answer…"
+        className="mt-3 w-full resize-y rounded-xl border border-white/12 bg-black/30 px-3 py-2 text-sm leading-relaxed text-white/90 outline-none focus:border-iris-400/40"
+      />
+      <div className="mt-2 flex flex-wrap items-center gap-2">
+        <Button
+          onClick={() => onRetryAnswer(text)}
+          disabled={!text.trim() || retrying}
+        >
+          {retrying ? <Loader2 className="animate-spin" /> : <Repeat />}
+          {retrying ? "Scoring retry…" : "Score this retry"}
+        </Button>
+        <span className="text-[10px] text-white/40">
+          The first attempt is kept — nothing is overwritten.
+        </span>
+      </div>
+    </Card>
   )
 }
 
@@ -619,8 +933,291 @@ function Stat({ label, value }: { label: string; value: string }) {
   )
 }
 
-function ScoreCard({ record }: { record: ScoreRecord }) {
+function JdEditor({
+  initial,
+  busy,
+  onApply,
+}: {
+  initial: string
+  busy: boolean
+  onApply: (jd: string) => void
+}) {
+  const [text, setText] = useState(initial)
+  return (
+    <div className="mt-2">
+      <textarea
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        rows={text ? 5 : 3}
+        placeholder="Paste a job description to ground the questions in the role's real requirements and gaps…"
+        className="w-full resize-y rounded-xl border border-white/12 bg-black/30 px-3 py-2 text-xs leading-relaxed text-white/90 outline-none focus:border-iris-400/40"
+      />
+      <div className="mt-2 flex flex-wrap items-center gap-2">
+        <Button onClick={() => onApply(text)} disabled={busy || !text.trim()}>
+          {busy ? <Loader2 className="animate-spin" /> : <Target />}
+          {busy ? "Reading the JD…" : "Ground questions in this JD"}
+        </Button>
+        <span className="text-[10px] text-white/40">
+          Questions are regenerated from the gaps it finds.
+        </span>
+      </div>
+    </div>
+  )
+}
+
+function confidenceTone(confidence: string) {
+  if (confidence === "strong")
+    return {
+      text: "text-mint-400",
+      pill: "border-mint-400/30 bg-mint-400/10 text-mint-200",
+      icon: <CheckCircle2 className="size-3.5" />,
+    }
+  if (confidence === "partial")
+    return {
+      text: "text-amber-300",
+      pill: "border-amber-300/30 bg-amber-300/10 text-amber-200",
+      icon: <AlertTriangle className="size-3.5" />,
+    }
+  if (confidence === "gap")
+    return {
+      text: "text-red-300",
+      pill: "border-red-400/30 bg-red-400/10 text-red-200",
+      icon: <XCircle className="size-3.5" />,
+    }
+  return {
+    text: "text-white/50",
+    pill: "border-white/15 bg-white/5 text-white/50",
+    icon: <Circle className="size-3.5" />,
+  }
+}
+
+function CoverageList({ coverage }: { coverage: Coverage }) {
+  const requirements = coverage.requirements ?? []
+  if (requirements.length === 0) return null
+  return (
+    <div className="mt-3 border-t border-white/10 pt-3">
+      {coverage.summary && (
+        <p className="mb-2 text-[11px] leading-relaxed text-white/55">
+          {coverage.summary}
+        </p>
+      )}
+      <ul className="space-y-2">
+        {requirements.map((r, i) => {
+          const tone = confidenceTone(r.confidence)
+          return (
+            <li key={i} className="flex gap-2 text-xs">
+              <span className={`mt-0.5 shrink-0 ${tone.text}`}>{tone.icon}</span>
+              <span className="min-w-0">
+                <span className="flex flex-wrap items-center gap-1.5">
+                  <span className="text-white/80">{r.requirement}</span>
+                  <span className="rounded-full border border-white/10 bg-white/5 px-1.5 py-px text-[9px] uppercase tracking-wider text-white/45">
+                    {r.importance}
+                  </span>
+                  <span
+                    className={`rounded-full border px-1.5 py-px text-[9px] uppercase tracking-wider ${tone.pill}`}
+                  >
+                    {r.confidence}
+                  </span>
+                </span>
+                {r.evidence ? (
+                  <span className="mt-0.5 block border-l-2 border-white/20 pl-2 italic text-white/50">
+                    “{r.evidence}”
+                  </span>
+                ) : (
+                  <span className="mt-0.5 block text-[10px] text-white/40">
+                    no resume evidence yet
+                    {r.why ? ` — ${r.why}` : ""}
+                  </span>
+                )}
+              </span>
+            </li>
+          )
+        })}
+      </ul>
+    </div>
+  )
+}
+
+function EvidenceRow({
+  item,
+  tone,
+  icon,
+}: {
+  item: EvidenceItem
+  tone: "mint" | "amber" | "red"
+  icon: React.ReactNode
+}) {
+  const toneText =
+    tone === "mint"
+      ? "text-mint-400"
+      : tone === "amber"
+        ? "text-amber-300"
+        : "text-red-300"
+  const sourceLabel =
+    item.source === "answer"
+      ? "from your words"
+      : item.source === "resume"
+        ? "from your résumé"
+        : "general suggestion"
+  return (
+    <li className="flex gap-2 text-xs text-white/70">
+      <span className={`mt-0.5 shrink-0 ${toneText}`}>{icon}</span>
+      <span className="min-w-0">
+        <span className="block">{item.point}</span>
+        {item.quote && (
+          <span className="mt-1 block border-l-2 border-white/20 pl-2 italic text-white/50">
+            “{item.quote}”
+          </span>
+        )}
+        <span
+          className={`mt-1 inline-block rounded-full border border-white/10 bg-white/5 px-1.5 py-px text-[9px] uppercase tracking-wider ${
+            item.source === "general" ? "text-white/40" : "text-white/55"
+          }`}
+        >
+          {sourceLabel}
+        </span>
+      </span>
+    </li>
+  )
+}
+
+function severityColor(severity: string) {
+  return severity === "high"
+    ? "bg-red-400"
+    : severity === "medium"
+      ? "bg-amber-300"
+      : "bg-white/40"
+}
+
+/**
+ * Deterministic ATS parse audit: what the machine extracted from the resume,
+ * next to the flags that explain where its reading diverges from yours.
+ */
+function ParseAuditPanel({
+  parse,
+}: {
+  parse: {
+    method?: string
+    pages?: number
+    text?: string
+    audit?: ParseAudit
+  }
+}) {
+  const audit = parse.audit
+  if (!audit) return null
+  const flags = audit.flags ?? []
+  const chips = [
+    `read via ${parse.method ?? "?"}`,
+    `${parse.pages ?? 1} page${(parse.pages ?? 1) === 1 ? "" : "s"}`,
+    `${audit.words ?? 0} words`,
+    audit.columns === 2 ? "2 columns" : "1 column",
+  ]
+
+  return (
+    <details className="mt-3 group">
+      <summary className="flex cursor-pointer items-center gap-1.5 text-xs text-sky-300 hover:text-sky-200">
+        <FileSearch className="size-3.5" /> ATS parse audit
+        {flags.length > 0 && (
+          <span className="rounded-full border border-white/15 bg-white/5 px-1.5 py-px text-[9px] text-white/50">
+            {flags.length} flag{flags.length === 1 ? "" : "s"}
+          </span>
+        )}
+      </summary>
+
+      <div className="mt-2 space-y-2.5 text-left">
+        <div className="flex flex-wrap gap-1.5">
+          {chips.map((c) => (
+            <span
+              key={c}
+              className="rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[10px] text-white/50"
+            >
+              {c}
+            </span>
+          ))}
+        </div>
+
+        {flags.length > 0 && (
+          <ul className="space-y-2">
+            {flags.map((f, i) => (
+              <li key={i} className="flex gap-2">
+                <span
+                  className={`mt-1 size-1.5 shrink-0 rounded-full ${severityColor(
+                    f.severity
+                  )}`}
+                />
+                <span className="min-w-0">
+                  <span className="block text-xs font-medium text-white/80">
+                    {f.title}
+                  </span>
+                  <span className="block text-[11px] leading-relaxed text-white/55">
+                    {f.detail}
+                  </span>
+                  {f.evidence && (
+                    <span className="mt-0.5 block truncate font-mono text-[10px] text-white/30">
+                      e.g. {f.evidence}
+                    </span>
+                  )}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+
+        <div>
+          <p className="text-[10px] uppercase tracking-wider text-white/35">
+            What the parser read
+          </p>
+          <pre className="mt-1 max-h-56 overflow-auto whitespace-pre-wrap rounded-xl border border-white/10 bg-black/30 px-3 py-2 font-mono text-[10px] leading-relaxed text-white/60">
+            {parse.text || "(no text extracted)"}
+          </pre>
+        </div>
+
+        <div className="flex flex-wrap gap-1.5">
+          {(audit.missing_sections?.length ?? 0) === 0 ? (
+            <span className="text-[10px] text-mint-400">
+              all standard sections found
+            </span>
+          ) : (
+            audit.missing_sections?.map((s) => (
+              <span
+                key={s}
+                className="rounded-full border border-amber-300/30 bg-amber-300/10 px-2 py-0.5 text-[10px] text-amber-200"
+              >
+                missing: {s}
+              </span>
+            ))
+          )}
+        </div>
+
+        <p className="text-[10px] leading-relaxed text-white/35">
+          ATS-friendly fixes: single-column layout, no tables, real text instead
+          of images, conventional headings, and an email in the body.
+        </p>
+      </div>
+    </details>
+  )
+}
+
+function ScoreCard({
+  record,
+  question,
+  index,
+  retry,
+  retrying,
+  retryTarget,
+  onRetry,
+}: {
+  record: ScoreRecord
+  question?: Question
+  index?: number
+  retry?: ScoreRecord
+  retrying?: boolean
+  retryTarget?: RetryTarget | null
+  onRetry?: (question: Question, index: number) => void
+}) {
   const [showBreakdown, setShowBreakdown] = useState(false)
+  const canRetry =
+    !!question && index !== undefined && !!onRetry && !retrying && !retryTarget
   const tone =
     record.score >= 80
       ? "text-mint-400 border-mint-400/40"
@@ -644,19 +1241,14 @@ function ScoreCard({ record }: { record: ScoreRecord }) {
           >
             {record.score}
           </div>
-          {typeof record.score_bias === "number" && record.score_bias !== 0 && (
-            <p className="mt-1 text-[10px] text-white/35">
-              {record.raw_score}
-              {record.score_bias > 0 ? "+" : ""}
-              {record.score_bias} mode
-            </p>
-          )}
         </div>
       </div>
 
       {record.verdict && (
         <p className="mt-3 text-sm text-white/70">{record.verdict}</p>
       )}
+
+      {retry?.diff && <RetryDiffBlock diff={retry.diff} />}
 
       {record.breakdown && (
         <div className="mt-3">
@@ -703,54 +1295,43 @@ function ScoreCard({ record }: { record: ScoreRecord }) {
       </p>
 
       {record.strengths.length > 0 && (
-        <ul className="mt-3 space-y-1">
+        <ul className="mt-3 space-y-2">
           {record.strengths.map((s, i) => (
-            <li key={i} className="flex gap-2 text-xs text-white/70">
-              <CheckCircle2 className="mt-0.5 size-3.5 shrink-0 text-mint-400" />
-              {s}
-            </li>
+            <EvidenceRow
+              key={i}
+              item={s}
+              tone="mint"
+              icon={<CheckCircle2 className="size-3.5" />}
+            />
           ))}
         </ul>
       )}
       {record.improvements.length > 0 && (
-        <ul className="mt-2 space-y-1">
+        <ul className="mt-2 space-y-2">
           {record.improvements.map((s, i) => (
-            <li key={i} className="flex gap-2 text-xs text-white/70">
-              <AlertTriangle className="mt-0.5 size-3.5 shrink-0 text-amber-300" />
-              {s}
-            </li>
+            <EvidenceRow
+              key={i}
+              item={s}
+              tone="amber"
+              icon={<AlertTriangle className="size-3.5" />}
+            />
           ))}
         </ul>
       )}
 
-      {(record.delivery_score != null || (record.delivery_notes?.length ?? 0) > 0) && (
+      {(record.setup?.notes?.length ?? 0) > 0 && (
         <div className="mt-3 rounded-xl border border-iris-400/20 bg-iris-500/[0.06] px-3 py-2">
           <p className="flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-iris-300">
-            <Video className="size-3" /> delivery & body language
-            {record.delivery_score != null && (
-              <span className="ml-auto text-white/60">
-                {record.delivery_score}/100
+            <Video className="size-3" /> camera setup
+            {record.setup && (
+              <span className="ml-auto text-white/50">
+                {record.setup.faceVisiblePct}% visible · {record.setup.facingPct}
+                % facing
               </span>
             )}
           </p>
-          {record.delivery && (
-            <div className="mt-1.5 flex flex-wrap gap-3 text-[10px] text-white/50">
-              <span className="flex items-center gap-1">
-                <Eye className="size-3" /> engagement {record.delivery.engagementPct}%
-              </span>
-              <span className="flex items-center gap-1">
-                <Smile className="size-3" /> warmth {record.delivery.smilePct}%
-              </span>
-              <span>tension {record.delivery.tensionPct}%</span>
-              <span>
-                  {record.delivery.blinksPerMin == null
-                    ? "blinks n/a"
-                    : `${record.delivery.blinksPerMin} blinks/min`}
-                </span>
-            </div>
-          )}
           <ul className="mt-1.5 space-y-0.5">
-            {record.delivery_notes?.map((n, i) => (
+            {record.setup?.notes?.map((n, i) => (
               <li key={i} className="text-xs text-white/70">
                 {n}
               </li>
@@ -764,11 +1345,14 @@ function ScoreCard({ record }: { record: ScoreRecord }) {
           <p className="flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-red-300">
             <Flag className="size-3" /> HR red flags in this answer
           </p>
-          <ul className="mt-1 space-y-0.5">
+          <ul className="mt-1 space-y-2">
             {record.red_flags?.map((f, i) => (
-              <li key={i} className="text-xs text-red-200/80">
-                {f}
-              </li>
+              <EvidenceRow
+                key={i}
+                item={f}
+                tone="red"
+                icon={<Flag className="size-3.5" />}
+              />
             ))}
           </ul>
         </div>
@@ -784,17 +1368,135 @@ function ScoreCard({ record }: { record: ScoreRecord }) {
         </p>
       )}
 
-      {record.better_answer && (
+      {record.answer_revision && (
         <details className="mt-3 group">
           <summary className="flex cursor-pointer items-center gap-1.5 text-xs text-iris-300 hover:text-iris-200">
-            <Sparkles className="size-3.5" /> Show a stronger answer
+            <Sparkles className="size-3.5" /> Show an evidence-preserving revision
           </summary>
           <p className="mt-2 rounded-xl border border-iris-400/20 bg-iris-500/[0.07] px-3 py-2 text-xs leading-relaxed text-white/75">
-            {record.better_answer}
+            {record.answer_revision}
+          </p>
+          <p className="mt-1.5 text-[10px] text-white/40">
+            Your own words, tightened. Placeholders like [add metric] mark facts
+            only you can supply — Aria never invents a number for you.
           </p>
         </details>
       )}
+
+      {canRetry && (
+        <div className="mt-3 border-t border-white/[0.07] pt-3">
+          <Button
+            variant="outline"
+            onClick={() => onRetry?.(question as Question, index as number)}
+          >
+            <Repeat /> Retry this question
+          </Button>
+          <span className="ml-2 text-[10px] text-white/40">
+            Same rubric — Aria shows what changed.
+          </span>
+        </div>
+      )}
     </Card>
+  )
+}
+
+/** Deterministic side-by-side of a retry against the first attempt. */
+function RetryDiffBlock({ diff }: { diff: RetryDiff }) {
+  const improved = diff.score_delta >= 0
+  return (
+    <div className="mt-3 rounded-xl border border-iris-400/25 bg-iris-500/[0.07] p-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-iris-300">
+          <Repeat className="size-3" /> what changed — attempt {diff.attempt}
+        </p>
+        <span
+          className={`flex items-center gap-1 text-sm font-semibold ${
+            improved ? "text-mint-400" : "text-red-300"
+          }`}
+        >
+          {diff.score_before}
+          <span className="text-white/40">→</span>
+          {diff.score_after}
+          {improved ? (
+            <ArrowUpRight className="size-3.5" />
+          ) : (
+            <ArrowDownRight className="size-3.5" />
+          )}
+          <span className="text-xs">
+            {diff.score_delta >= 0 ? "+" : ""}
+            {diff.score_delta}
+          </span>
+        </span>
+      </div>
+
+      <ul className="mt-2 space-y-1">
+        {diff.dimensions
+          .filter((d) => d.delta !== 0)
+          .map((d) => (
+            <li key={d.key} className="flex items-center gap-2 text-[11px]">
+              <span className="w-32 shrink-0 text-white/45">
+                {DIM_LABELS[d.key] ?? d.key}
+              </span>
+              <span className="text-white/55">{d.before}</span>
+              <span className="text-white/25">→</span>
+              <span className={d.delta > 0 ? "text-mint-400" : "text-red-300"}>
+                {d.after}/{d.max}
+              </span>
+              <span
+                className={`text-[10px] ${
+                  d.delta > 0 ? "text-mint-400/80" : "text-red-300/80"
+                }`}
+              >
+                ({d.delta > 0 ? "+" : ""}
+                {d.delta})
+              </span>
+            </li>
+          ))}
+      </ul>
+
+      <p className="mt-2 text-[11px] leading-relaxed text-white/60">
+        {diff.summary}
+      </p>
+
+      {(diff.numbers_added.length > 0 ||
+        diff.added_words.length > 0 ||
+        diff.removed_words.length > 0) && (
+        <div className="mt-2 space-y-1.5">
+          {diff.numbers_added.length > 0 && (
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="text-[10px] uppercase tracking-wider text-mint-400">
+                numbers added
+              </span>
+              {diff.numbers_added.map((n) => (
+                <span
+                  key={n}
+                  className="rounded-full border border-mint-400/30 bg-mint-400/10 px-1.5 py-px text-[10px] text-mint-200"
+                >
+                  {n}
+                </span>
+              ))}
+            </div>
+          )}
+          {diff.added_words.length > 0 && (
+            <p className="text-[10px] leading-relaxed text-white/45">
+              <span className="text-mint-400/80">added: </span>
+              {diff.added_words.join(", ")}
+            </p>
+          )}
+          {diff.removed_words.length > 0 && (
+            <p className="text-[10px] leading-relaxed text-white/45">
+              <span className="text-red-300/80">dropped: </span>
+              {diff.removed_words.join(", ")}
+            </p>
+          )}
+        </div>
+      )}
+
+      <p className="mt-2 text-[10px] leading-relaxed text-white/35">
+        A word-level comparison of the two transcripts, not a model's opinion —
+        every word is checkable.
+      </p>
+    </div>
   )
 }
 

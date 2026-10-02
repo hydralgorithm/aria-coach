@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 
-import type { DeliverySummary } from "@/hooks/useFaceAnalysis"
+import type { SetupSummary } from "@/hooks/useFaceAnalysis"
 
 export type PersonaInfo = {
   id: string
@@ -8,6 +8,8 @@ export type PersonaInfo = {
   tagline: string
   icon: string
   accent: string
+  /** advanced interviewer modes (adversarial / stress) */
+  advanced?: boolean
   audio_url?: string
 }
 
@@ -19,7 +21,43 @@ export type Question = {
   competency?: string
 }
 
+export type EvidenceItem = {
+  /** the observation */
+  point: string
+  /** verbatim words from the answer or resume; empty for a general suggestion */
+  quote: string
+  /** "answer" | "resume" | "general" */
+  source: string
+  /** true when the quote was found verbatim in the source text */
+  verified: boolean
+}
+
+export type RetryDimension = {
+  key: string
+  max: number
+  before: number
+  after: number
+  delta: number
+}
+
+/** Deterministic comparison of a retry against the previous attempt. */
+export type RetryDiff = {
+  attempt: number
+  score_before: number
+  score_after: number
+  score_delta: number
+  dimensions: RetryDimension[]
+  added_words: string[]
+  removed_words: string[]
+  numbers_added: string[]
+  word_count_before: number
+  word_count_after: number
+  summary: string
+}
+
 export type ScoreRecord = {
+  /** id of the question this answer belongs to */
+  question_id?: number
   question: string
   type: string
   competency?: string
@@ -27,18 +65,59 @@ export type ScoreRecord = {
   answer: string
   score: number
   raw_score?: number
-  score_bias?: number
   breakdown?: Record<string, number>
   verdict: string
-  strengths: string[]
-  improvements: string[]
-  red_flags?: string[]
+  strengths: EvidenceItem[]
+  improvements: EvidenceItem[]
+  red_flags?: EvidenceItem[]
   hr_tip?: string
-  delivery?: DeliverySummary | null
-  delivery_score?: number | null
-  delivery_notes?: string[]
-  better_answer: string
+  /** camera-setup metrics recorded for this answer (never scored) */
+  setup?: SetupSummary | null
+  answer_revision: string
   spoken_feedback: string
+  /** attempt number (1 = first answer) present on retry records */
+  attempt?: number
+  /** present on retry records */
+  diff?: RetryDiff
+}
+
+export type ParseFlag = {
+  severity: string
+  title: string
+  detail: string
+  evidence?: string
+}
+
+export type ParseAudit = {
+  words?: number
+  chars?: number
+  columns?: number
+  tables?: number
+  images?: number
+  repeated_headers?: string[]
+  sections?: Record<string, boolean>
+  missing_sections?: string[]
+  contact?: { email?: boolean; phone?: boolean; linkedin?: boolean }
+  flags?: ParseFlag[]
+}
+
+export type Requirement = {
+  requirement: string
+  kind?: string
+  /** verbatim resume span, or "" when the resume shows nothing */
+  evidence: string
+  /** strong | partial | gap | unknown */
+  confidence: string
+  /** high | medium | low */
+  importance: string
+  why?: string
+}
+
+export type Coverage = {
+  summary?: string
+  requirements?: Requirement[]
+  gaps?: number
+  matched?: number
 }
 
 export type StructuredResume = {
@@ -61,20 +140,46 @@ export type InterviewState = {
   questions: Question[]
   answers: ScoreRecord[]
   currentQuestion: Question | null
-  parse: { method?: string; pages?: number; warnings?: string[] }
-  deliverySummary?: DeliverySummaryReport | null
+  parse: {
+    method?: string
+    pages?: number
+    warnings?: string[]
+    /** raw text exactly as the parser extracted it — what an ATS receives */
+    text?: string
+    audit?: ParseAudit
+  }
+  /** the job description the questions are grounded in, if any */
+  jd?: string
+  coverage?: Coverage
+  setupSummary?: SetupSummaryReport | null
+  /** confidence as behaviour chosen (cumulative, local history) */
+  behaviour?: BehaviourStats
 }
 
-export type DeliverySummaryReport = {
+export type PendingAnswer = {
+  /** the raw transcript, exactly as the mic heard it */
+  text: string
+  /** camera-setup summary captured when the answer finished */
+  setup: SetupSummary | null
+  /** when set, the transcript is a retry of this question rather than a new answer */
+  retryQuestionId?: number
+}
+
+export type RetryTarget = { question: Question; index: number }
+
+export type BehaviourStats = {
+  sessions: number
+  answered: number
+  corrected: number
+  retried: number
+  improved: number
+}
+
+export type SetupSummaryReport = {
   available: boolean
   answers_analysed?: number
-  avg_delivery_score?: number | null
-  avg_engagement_pct?: number
-  avg_smile_pct?: number
-  avg_tension_pct?: number
-  avg_blinks_per_min?: number | null
-  avg_head_steadiness?: number
   face_visible_pct?: number
+  avg_facing_pct?: number
   multi_face_flags?: number
   notes?: string[]
 }
@@ -87,7 +192,10 @@ const EMPTY: InterviewState = {
   answers: [],
   currentQuestion: null,
   parse: {},
-  deliverySummary: null,
+  jd: "",
+  coverage: undefined,
+  setupSummary: null,
+  behaviour: undefined,
 }
 
 export function useInterview(
@@ -100,6 +208,19 @@ export function useInterview(
   const [analyzing, setAnalyzing] = useState(false)
   const [scoring, setScoring] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  /**
+   * A transcribed answer waiting at the transcript gate. The user sees and can
+   * edit exactly what the mic heard before it is scored — nothing is scored
+   * until they confirm.
+   */
+  const [pending, setPending] = useState<PendingAnswer | null>(null)
+  /** the question currently being retried, if any (out-of-band scoring) */
+  const [retryTarget, setRetryTarget] = useState<RetryTarget | null>(null)
+  /** retry result per question id, compared against the first attempt */
+  const [retryResults, setRetryResults] = useState<Record<number, ScoreRecord>>(
+    {}
+  )
+  const [retrying, setRetrying] = useState(false)
   const personaAbortRef = useRef<AbortController | null>(null)
 
   // personality modes live on the backend so prompts and UI never drift
@@ -164,19 +285,22 @@ export function useInterview(
   )
 
   const loadResume = useCallback(
-    async (file: File) => {
+    async (file: File, jd = "") => {
       setError(null)
       setAnalyzing(true)
       try {
         const form = new FormData()
         form.append("file", file)
         form.append("persona", persona)
+        form.append("jd", jd)
         const res = await fetch("/api/interview/resume", {
           method: "POST",
           body: form,
         })
         const data = await res.json()
         if (!res.ok) throw new Error(data.detail || `http ${res.status}`)
+        setRetryResults({})
+        setRetryTarget(null)
         setState({
           filename: data.filename ?? file.name,
           profile: data.profile ?? "",
@@ -185,6 +309,8 @@ export function useInterview(
           answers: [],
           currentQuestion: data.current_question ?? null,
           parse: data.parse ?? {},
+          jd: data.jd ?? "",
+          coverage: data.coverage ?? {},
         })
         if (data.audio_url) void playAudio(data.audio_url)
       } catch (err) {
@@ -198,15 +324,50 @@ export function useInterview(
     [persona, playAudio]
   )
 
+  /** Ground the questions in a pasted job description (before answering). */
+  const applyJd = useCallback(async (jd: string) => {
+    setError(null)
+    setAnalyzing(true)
+    try {
+      const res = await fetch("/api/interview/jd", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: jd }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.detail || `http ${res.status}`)
+      setRetryResults({})
+      setRetryTarget(null)
+      setState((prev) => ({
+        ...prev,
+        jd: data.jd ?? jd,
+        coverage: data.coverage ?? {},
+        questions: data.questions ?? [],
+        answers: [],
+        currentQuestion: data.current_question ?? null,
+      }))
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "could not ground the questions"
+      )
+    } finally {
+      setAnalyzing(false)
+    }
+  }, [])
+
   const submitAnswer = useCallback(
-    async (answer: string, delivery?: DeliverySummary | null) => {
+    async (
+      answer: string,
+      setup?: SetupSummary | null,
+      edited = false
+    ) => {
       setError(null)
       setScoring(true)
       try {
         const res = await fetch("/api/interview/answer", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ message: answer, delivery: delivery ?? null }),
+          body: JSON.stringify({ message: answer, setup: setup ?? null, edited }),
         })
         const data = await res.json()
         if (!res.ok) throw new Error(data.detail || `http ${res.status}`)
@@ -216,8 +377,9 @@ export function useInterview(
           currentQuestion: data.next_question ?? null,
           structured: data.state?.structured ?? prev.structured,
           profile: data.state?.profile ?? prev.profile,
-          deliverySummary:
-            data.state?.delivery_summary ?? prev.deliverySummary,
+          setupSummary:
+            data.state?.setup_summary ?? prev.setupSummary,
+          behaviour: data.state?.behaviour ?? prev.behaviour,
         }))
         if (data.audio_url) void playAudio(data.audio_url)
       } catch (err) {
@@ -229,9 +391,86 @@ export function useInterview(
     [playAudio]
   )
 
+  /** Re-answer an earlier question; score it out-of-band with a diff. */
+  const retryAnswer = useCallback(
+    async (
+      answer: string,
+      setup: SetupSummary | null,
+      questionId: number,
+      edited = false
+    ) => {
+      setError(null)
+      setRetrying(true)
+      try {
+        const res = await fetch("/api/interview/retry", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            message: answer,
+            setup: setup ?? null,
+            edited,
+            question_id: questionId,
+          }),
+        })
+        const data = await res.json()
+        if (!res.ok) throw new Error(data.detail || `http ${res.status}`)
+        setRetryResults((prev) => ({ ...prev, [questionId]: data as ScoreRecord }))
+        setRetryTarget(null)
+        if (data.behaviour) {
+          const behaviour = data.behaviour as BehaviourStats
+          setState((prev) => ({ ...prev, behaviour }))
+        }
+        if (data.audio_url) void playAudio(data.audio_url)
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "retry scoring failed")
+      } finally {
+        setRetrying(false)
+      }
+    },
+    [playAudio]
+  )
+
+  /** Park a transcript at the gate instead of scoring it immediately. */
+  const reviewAnswer = useCallback(
+    (text: string, setup?: SetupSummary | null, retryQuestionId?: number) => {
+      setError(null)
+      setPending({ text: text.trim(), setup: setup ?? null, retryQuestionId })
+    },
+    []
+  )
+
+  /** Send the (possibly edited) transcript through to scoring. */
+  const confirmPending = useCallback(
+    async (text: string, edited = false) => {
+      const setup = pending?.setup ?? null
+      const retryQuestionId = pending?.retryQuestionId
+      setPending(null)
+      if (retryQuestionId !== undefined) {
+        await retryAnswer(text.trim(), setup, retryQuestionId, edited)
+      } else {
+        await submitAnswer(text.trim(), setup, edited)
+      }
+    },
+    [pending, submitAnswer, retryAnswer]
+  )
+
+  const discardPending = useCallback(() => setPending(null), [])
+
+  /** Begin retrying a question already answered this session. */
+  const startRetry = useCallback((question: Question, index: number) => {
+    setError(null)
+    setPending(null)
+    setRetryTarget({ question, index })
+  }, [])
+
+  const cancelRetry = useCallback(() => setRetryTarget(null), [])
+
   const reset = useCallback(async () => {
     setState(EMPTY)
     setError(null)
+    setPending(null)
+    setRetryTarget(null)
+    setRetryResults({})
     await fetch("/api/interview/reset", { method: "POST" }).catch(() => {})
   }, [])
 
@@ -243,9 +482,20 @@ export function useInterview(
     analyzing,
     scoring,
     error,
+    pending,
+    retryTarget,
+    retryResults,
+    retrying,
     choosePersona,
     loadResume,
+    applyJd,
     submitAnswer,
+    retryAnswer,
+    reviewAnswer,
+    confirmPending,
+    discardPending,
+    startRetry,
+    cancelRetry,
     reset,
   }
 }

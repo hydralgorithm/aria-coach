@@ -1,84 +1,61 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import { FaceLandmarker, FilesetResolver } from "@mediapipe/tasks-vision"
 
-import {
-  BLINK,
-  blinkRate,
-  engagementFromPose,
-  gazeFromBlendshapes,
-  headSteadiness,
-  stepBlink,
-  updateBaseline,
-  type GazeInput,
-} from "@/lib/faceMetrics"
+import { headFacing, updateBaseline } from "@/lib/faceMetrics"
 
 /**
- * Local facial-expression + head-pose analysis for interview delivery coaching.
+ * On-device camera setup rehearsal.
  *
- * Everything runs on-device (MediaPipe WASM/GPU). No video frame ever leaves
- * the browser — only the numeric summary below is sent to the coach.
+ * A 3D face tracker runs at ~25 fps entirely in the browser. It is used ONLY
+ * to check logistics: are you in frame, is your head pointed at the camera,
+ * is anyone else in frame, is the tracker calibrated. Video never leaves the
+ * machine and no emotion is ever read from the face (EU AI Act Art. 5(1)(f)).
  *
- * The metric maths lives in `@/lib/faceMetrics` so it can be unit tested —
- * run `node scripts/face-metrics-test.mjs`.
+ * The affect maths (gaze, blink, smile, tension) still lives in
+ * `@/lib/faceMetrics` where it is unit tested, but it is deliberately not
+ * surfaced here — run `node scripts/face-metrics-test.mjs`.
  */
 
 export type FaceMetrics = {
   running: boolean
   faceCount: number
-  /** 0..1 — engagement (head toward the interviewer, eyes on-task) */
-  engagement: number
-  /** 0..1 — mouth-smile intensity */
-  smile: number
-  /** 0..1 — brow furrow / lip press (visible tension) */
-  tension: number
+  /** 0..1 — head oriented toward the camera (framing check, not an emotion) */
+  facing: number
   yawDeg: number
   pitchDeg: number
-  /** null until there is a long enough window to be meaningful */
-  blinksPerMin: number | null
   /** true once the neutral-pose baseline has been learned */
   calibrated: boolean
   fps: number
   error: string | null
 }
 
-export type DeliverySummary = {
+export type SetupSummary = {
   frames: number
   seconds: number
   noFacePct: number
   multiFacePct: number
-  /** % of observed time spent engaged */
-  engagementPct: number
-  meanEngagement: number
-  longestGazeAversionMs: number
-  smilePct: number
-  smileAvg: number
-  tensionAvg: number
-  tensionPct: number
-  blinksPerMin: number | null
-  headSteadiness: number
+  faceVisiblePct: number
+  /** % of observed frames with the head oriented toward the camera */
+  facingPct: number
   calibrated: boolean
   notes: string[]
 }
 
-const DETECT_INTERVAL_MS = 40 // ~25 fps; a blink only lasts 100-400 ms
+const DETECT_INTERVAL_MS = 40 // ~25 fps
 const UI_FLUSH_MS = 200 // don't re-render the panel 25x a second
 /** A gap larger than this means the tab was backgrounded, not that time passed. */
 const MAX_GAP_MS = 250
 /** A pose must be inside the baseline window to count as the neutral pose. */
 const BASELINE_FRAMES = 24
-const ENGAGED_THRESHOLD = 0.6
-/** Consecutive off-axis frames before it counts as gaze aversion. */
-const AVERSION_FRAMES = 6
+/** Head inside the neutral cone counts as facing the camera. */
+const FACING_THRESHOLD = 0.6
 
 const EMPTY_METRICS: FaceMetrics = {
   running: false,
   faceCount: 0,
-  engagement: 0,
-  smile: 0,
-  tension: 0,
+  facing: 0,
   yawDeg: 0,
   pitchDeg: 0,
-  blinksPerMin: null,
   calibrated: false,
   fps: 0,
   error: null,
@@ -90,17 +67,10 @@ type Accum = {
   multiFace: number
   /** Time actually spent observing frames (excludes hidden-tab gaps). */
   observedMs: number
-  engagementSum: number
-  engagedFrames: number
-  smileSum: number
-  smileFrames: number
-  tensionSum: number
-  tensionFrames: number
+  facingSum: number
+  facingFrames: number
   yaws: number[]
   pitches: number[]
-  aversionRunMs: number
-  longestAwayMs: number
-  blinks: number
 }
 
 function newAccum(): Accum {
@@ -109,17 +79,10 @@ function newAccum(): Accum {
     noFace: 0,
     multiFace: 0,
     observedMs: 0,
-    engagementSum: 0,
-    engagedFrames: 0,
-    smileSum: 0,
-    smileFrames: 0,
-    tensionSum: 0,
-    tensionFrames: 0,
+    facingSum: 0,
+    facingFrames: 0,
     yaws: [],
     pitches: [],
-    aversionRunMs: 0,
-    longestAwayMs: 0,
-    blinks: 0,
   }
 }
 
@@ -138,12 +101,10 @@ export function useFaceAnalysis() {
     since: 0,
     fps: 0,
   })
-  const blinkStateRef = useRef({ closed: false, lastAt: -1e9 })
   const baselineRef = useRef({ yaw: 0, pitch: 0, n: 0 })
   const accumRef = useRef<Accum>(newAccum())
   const enabledRef = useRef(false)
   const lastSeenRef = useRef(0)
-  const aversionRunRef = useRef(0)
   const lastFlushRef = useRef(0)
   /** Nose position of the face we are tracking, so a second face cannot steal it. */
   const trackedFaceRef = useRef<{ x: number; y: number } | null>(null)
@@ -207,9 +168,8 @@ export function useFaceAnalysis() {
 
     if (faceCount === 0) {
       acc.noFace++
-      aversionRunRef.current = 0
       trackedFaceRef.current = null
-      flush({ engagement: 0, smile: 0, tension: 0 })
+      flush({ facing: 0 })
       return
     }
     if (faceCount > 1) acc.multiFace++
@@ -234,17 +194,6 @@ export function useFaceAnalysis() {
     const nose = landmarks[idx]?.[1]
     if (nose) trackedFaceRef.current = { x: nose.x, y: nose.y }
 
-    // ---- blendshapes
-    const cats = result.faceBlendshapes?.[idx]?.categories ?? []
-    const bs: Record<string, number> = {}
-    for (const c of cats) bs[c.categoryName] = c.score
-
-    const smile = ((bs.mouthSmileLeft ?? 0) + (bs.mouthSmileRight ?? 0)) / 2
-    const browFurrow = ((bs.browDownLeft ?? 0) + (bs.browDownRight ?? 0)) / 2
-    const lipPress =
-      ((bs.mouthPressLeft ?? 0) + (bs.mouthPressRight ?? 0)) / 2
-    const tension = Math.min(1, browFurrow * 0.6 + lipPress * 0.4)
-
     // ---- head pose from the facial transformation matrix (column-major)
     const m = result.facialTransformationMatrixes?.[idx]?.data
     let yawDeg = 0
@@ -263,60 +212,23 @@ export function useFaceAnalysis() {
       baselineRef.current = updateBaseline(baselineRef.current, yawDeg, pitchDeg)
     }
 
-    // ---- gaze + engagement
-    const gazeInput: GazeInput = {
-      eyeLookOutLeft: bs.eyeLookOutLeft ?? 0,
-      eyeLookInLeft: bs.eyeLookInLeft ?? 0,
-      eyeLookOutRight: bs.eyeLookOutRight ?? 0,
-      eyeLookInRight: bs.eyeLookInRight ?? 0,
-      eyeLookUpLeft: bs.eyeLookUpLeft ?? 0,
-      eyeLookUpRight: bs.eyeLookUpRight ?? 0,
-      eyeLookDownLeft: bs.eyeLookDownLeft ?? 0,
-      eyeLookDownRight: bs.eyeLookDownRight ?? 0,
-    }
-    const gaze = gazeFromBlendshapes(gazeInput)
-    const engagement = engagementFromPose({
+    // ---- framing only: is the head oriented toward the camera?
+    const facing = headFacing(
       yawDeg,
       pitchDeg,
-      gaze,
-      baselineYaw: baselineRef.current.yaw,
-      baselinePitch: baselineRef.current.pitch,
-    })
+      baselineRef.current.yaw,
+      baselineRef.current.pitch
+    )
 
-    // ---- accumulate for the current answer
-    acc.engagementSum += engagement
-    if (engagement > ENGAGED_THRESHOLD) acc.engagedFrames++
-    acc.smileSum += smile
-    if (smile > 0.25) acc.smileFrames++
-    acc.tensionSum += tension
-    if (tension > 0.35) acc.tensionFrames++
+    acc.facingSum += facing
+    if (facing > FACING_THRESHOLD) acc.facingFrames++
     acc.yaws.push(yawDeg)
     acc.pitches.push(pitchDeg)
 
-    // Gaze aversion only counts once it persists, so a natural glance at notes
-    // for one or two frames is not flagged.
-    if (engagement < 0.35) {
-      aversionRunRef.current += 1
-      acc.aversionRunMs += gap > 0 && gap < MAX_GAP_MS ? gap : 0
-      if (aversionRunRef.current >= AVERSION_FRAMES) {
-        acc.longestAwayMs = Math.max(acc.longestAwayMs, acc.aversionRunMs)
-      }
-    } else {
-      aversionRunRef.current = 0
-      acc.aversionRunMs = 0
-    }
-
-    // ---- blink detection (hysteresis + refractory period)
-    const blinkScore = ((bs.eyeBlinkLeft ?? 0) + (bs.eyeBlinkRight ?? 0)) / 2
-    if (stepBlink(blinkScore, blinkStateRef.current, now)) acc.blinks++
-
     flush({
-      engagement,
-      smile,
-      tension,
+      facing,
       yawDeg,
       pitchDeg,
-      blinksPerMin: blinkRate(acc.blinks, acc.observedMs),
       calibrated: baselineRef.current.n >= BASELINE_FRAMES,
     })
   }, [])
@@ -346,7 +258,7 @@ export function useFaceAnalysis() {
             },
             runningMode: "VIDEO",
             numFaces: 2, // 2nd face flags "someone else is in frame"
-            outputFaceBlendshapes: true,
+            outputFaceBlendshapes: false,
             outputFacialTransformationMatrixes: true,
           }
         )
@@ -356,9 +268,7 @@ export function useFaceAnalysis() {
       lastDetectRef.current = 0
       lastSeenRef.current = 0
       lastFlushRef.current = 0
-      aversionRunRef.current = 0
       baselineRef.current = { yaw: 0, pitch: 0, n: 0 }
-      blinkStateRef.current = { closed: false, lastAt: -1e9 }
       trackedFaceRef.current = null
       fpsRef.current = { frames: 0, since: performance.now(), fps: 0 }
       enabledRef.current = true
@@ -383,13 +293,11 @@ export function useFaceAnalysis() {
   const beginTurn = useCallback(() => {
     accumRef.current = newAccum()
     lastSeenRef.current = performance.now()
-    aversionRunRef.current = 0
-    blinkStateRef.current = { closed: false, lastAt: -1e9 }
     // keep the learned neutral pose; it describes the room, not the answer
   }, [])
 
-  /** Aggregate the answer's delivery into a compact summary. */
-  const endTurn = useCallback((): DeliverySummary | null => {
+  /** Aggregate the answer's camera setup into a compact summary. */
+  const endTurn = useCallback((): SetupSummary | null => {
     const acc = accumRef.current
     if (!enabledRef.current || acc.frames === 0) return null
 
@@ -399,51 +307,21 @@ export function useFaceAnalysis() {
     const noFacePct = Math.round((acc.noFace / frames) * 100)
     const multiFacePct = Math.round((acc.multiFace / frames) * 100)
     const seen = Math.max(1, frames - acc.noFace)
-    const engagementPct = Math.round((acc.engagedFrames / seen) * 100)
-    const smilePct = Math.round((acc.smileFrames / seen) * 100)
-    const tensionPct = Math.round((acc.tensionFrames / seen) * 100)
-
-    const steady = headSteadiness(
-      acc.yaws,
-      acc.pitches,
-      baselineRef.current.yaw,
-      baselineRef.current.pitch
-    )
-    const rate = blinkRate(acc.blinks, acc.observedMs)
+    const facingPct = Math.round((acc.facingFrames / seen) * 100)
     const calibrated = baselineRef.current.n >= BASELINE_FRAMES
 
     const notes: string[] = []
     if (noFacePct > 15)
       notes.push(
-        `you moved out of frame for ${noFacePct}% of the answer — stay visible to the camera`
+        `you moved out of frame for ${noFacePct}% of the answer — sit far enough back that your head and shoulders stay visible`
       )
     if (multiFacePct > 10)
       notes.push(
-        `another person was visible (${multiFacePct}% of frames) — interview coaches flag this`
+        `another person was visible for ${multiFacePct}% of the frames — in a real interview make sure you are alone and the shot is yours`
       )
-    if (engagementPct < 55)
+    if (facingPct < 55)
       notes.push(
-        `you spent only ${engagementPct}% of the answer oriented toward the interviewer — face the screen/camera rather than looking off to the side`
-      )
-    if (acc.longestAwayMs > 2500)
-      notes.push(
-        `you looked away for ${(acc.longestAwayMs / 1000).toFixed(1)}s in one stretch — brief glances at notes are fine, long drifts read as uncertainty`
-      )
-    if (smilePct < 10)
-      notes.push(
-        "few warmth signals — a small smile when talking about people or wins builds rapport"
-      )
-    if (tensionPct > 30)
-      notes.push(
-        `visible tension in ${tensionPct}% of frames (brow furrow / lip press) — relax your jaw and brows`
-      )
-    if (rate != null && rate > BLINK.elevatedRate)
-      notes.push(
-        `high blink rate (~${rate}/min vs ~26/min in normal conversation) — often a calm-down signal, try slowing your breathing`
-      )
-    if (steady < 0.5)
-      notes.push(
-        "a lot of head movement — steadier posture reads as more confident"
+        `your head was turned away from the camera for much of the answer — put the screen and lens in front of you and glance, don't turn`
       )
 
     return {
@@ -451,15 +329,8 @@ export function useFaceAnalysis() {
       seconds: Math.round(seconds * 10) / 10,
       noFacePct,
       multiFacePct,
-      engagementPct,
-      meanEngagement: Math.round((acc.engagementSum / seen) * 100) / 100,
-      longestGazeAversionMs: Math.round(acc.longestAwayMs),
-      smilePct,
-      smileAvg: Math.round((acc.smileSum / seen) * 100) / 100,
-      tensionAvg: Math.round((acc.tensionSum / seen) * 100) / 100,
-      tensionPct,
-      blinksPerMin: rate,
-      headSteadiness: Math.round(steady * 100) / 100,
+      faceVisiblePct: 100 - noFacePct,
+      facingPct,
       calibrated,
       notes,
     }
@@ -491,4 +362,4 @@ export function useFaceAnalysis() {
     beginTurn,
     endTurn,
   }
-}
+}

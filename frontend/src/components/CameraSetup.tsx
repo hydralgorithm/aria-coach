@@ -1,4 +1,4 @@
-import { Camera, CameraOff, Loader2, Eye, Smile, TriangleAlert } from "lucide-react"
+import { Camera, CameraOff, Loader2, ScanFace, TriangleAlert } from "lucide-react"
 import type { RefObject } from "react"
 
 import { Button } from "@/components/ui/button"
@@ -12,7 +12,13 @@ type Props = {
   onToggle: () => void
 }
 
-export default function DeliveryMeter({
+/**
+ * Camera setup rehearsal.
+ *
+ * A 3D face tracker runs locally to check framing and visibility only. It does
+ * not read emotion, and nothing here influences the interview score.
+ */
+export default function CameraSetup({
   videoRef,
   metrics,
   enabled,
@@ -26,14 +32,10 @@ export default function DeliveryMeter({
           variant="outline"
           onClick={onToggle}
           disabled={loading}
-          title="Analyse your facial expressions and delivery locally (nothing leaves your machine)"
+          title="Check your camera framing and lighting locally (nothing leaves your machine)"
         >
-          {loading ? (
-            <Loader2 className="animate-spin" />
-          ) : (
-            <Camera />
-          )}
-          {loading ? "Starting camera…" : "Delivery analysis (camera)"}
+          {loading ? <Loader2 className="animate-spin" /> : <Camera />}
+          {loading ? "Starting camera…" : "Camera setup check"}
         </Button>
         {metrics.error && (
           <p className="mt-1 max-w-56 text-[10px] text-red-300">
@@ -48,13 +50,13 @@ export default function DeliveryMeter({
     <aside className="fixed bottom-4 left-4 z-40 w-64 overflow-hidden rounded-2xl border border-white/15 bg-ink-900/95 shadow-2xl backdrop-blur-xl">
       <header className="flex items-center justify-between border-b border-white/10 px-3 py-2">
         <span className="flex items-center gap-1.5 text-[10px] font-semibold tracking-wide text-white/80">
-          <Camera className="size-3.5" /> DELIVERY ANALYSIS
+          <Camera className="size-3.5" /> CAMERA SETUP
         </span>
         <button
           onClick={onToggle}
           className="rounded p-1 text-white/50 hover:bg-white/10 hover:text-white"
           title="Stop camera"
-          aria-label="Stop delivery analysis"
+          aria-label="Stop camera setup check"
         >
           <CameraOff className="size-3.5" />
         </button>
@@ -82,43 +84,26 @@ export default function DeliveryMeter({
 
       <div className="space-y-2 px-3 py-2.5">
         <Gauge
-          icon={<Eye className="size-3" />}
-          label="engagement"
-          value={metrics.engagement}
+          icon={<ScanFace className="size-3" />}
+          label="facing the camera"
+          value={metrics.facing}
           good={0.6}
-        />
-        <Gauge
-          icon={<Smile className="size-3" />}
-          label="warmth"
-          value={metrics.smile}
-          good={0.25}
-        />
-        <Gauge
-          icon={<TriangleAlert className="size-3" />}
-          label="tension"
-          value={metrics.tension}
-          good={0.35}
-          invert
         />
         <div className="flex justify-between pt-0.5 text-[10px] text-white/40">
           <span>
             yaw {metrics.yawDeg.toFixed(0)}° / pitch{" "}
             {metrics.pitchDeg.toFixed(0)}°
           </span>
-          <span>
-            {metrics.blinksPerMin == null
-              ? "blinks —"
-              : `${metrics.blinksPerMin}/min`}{" "}
-            · {metrics.fps} fps
-          </span>
+          <span>{metrics.fps} fps</span>
         </div>
         <p className="text-[9px] leading-snug text-white/30">
           {metrics.calibrated
-            ? "Reading the screen and glancing at notes is normal and is not penalised."
+            ? "Framing only — glance at your notes freely; this checks the camera angle, not your face."
             : "Calibrating your neutral pose…"}
         </p>
         <p className="text-[9px] leading-snug text-white/30">
-          Runs entirely on your device — no video leaves your machine.
+          Runs entirely on your device. No video leaves your machine, and no
+          emotion is ever read from your face.
         </p>
       </div>
     </aside>

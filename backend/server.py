@@ -19,7 +19,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from . import brain, coach, tts
+from . import brain, coach, errorbars, store, tts
 
 app = FastAPI(title="Aria backend")
 
@@ -124,8 +124,12 @@ def _to_wav_bytes(raw: bytes, mime: str) -> bytes:
 
 class ChatRequest(BaseModel):
     message: str
-    # optional delivery metrics from the local webcam analysis
-    delivery: dict | None = None
+    # optional camera-setup metrics from the local face tracker (never scored)
+    setup: dict | None = None
+    # the candidate corrected the transcript at the gate (behaviour, not a face)
+    edited: bool = False
+    # set when re-answering a specific question (retry / spaced practice)
+    question_id: int | None = None
 
 
 @app.post("/api/transcribe")
@@ -203,6 +207,7 @@ async def health() -> dict:
         sf_ok = True
     except ImportError:
         pass
+    ollama_ok = brain.ollama_available()
     return {
         "ok": True,
         "python": sys.version,
@@ -211,6 +216,18 @@ async def health() -> dict:
         "soundfile": sf_ok,
         "model": brain.MODEL,
         "tts_voice": tts.VOICE,
+        # Honest account of where each task runs. Cloud by default where the
+        # cloud is measurably better; local where local is just as good.
+        "engines": {
+            "llm_primary": f"groq:{brain.MODEL}",
+            "llm_fallback": (
+                f"ollama:{brain.OLLAMA_MODEL}" if ollama_ok else None
+            ),
+            "llm_last": brain.LAST_ENGINE or None,
+            "stt": f"groq:{brain.STT_MODEL}",
+            "tts_local": kokoro_ok,
+            "vision_local": True,
+        },
     }
 
 
@@ -246,7 +263,9 @@ async def personas() -> dict:
 
 @app.post("/api/interview/resume")
 async def interview_resume(
-    file: UploadFile = File(...), persona: str = Form("standard")
+    file: UploadFile = File(...),
+    persona: str = Form("standard"),
+    jd: str = Form(""),
 ) -> dict:
     data = await file.read()
     if not data:
@@ -254,7 +273,7 @@ async def interview_resume(
     started = time.time()
     try:
         result = coach.load_resume(
-            file.filename or "resume.pdf", data, persona_id=persona
+            file.filename or "resume.pdf", data, persona_id=persona, jd=jd
         )
     except Exception as exc:
         raise HTTPException(400, f"could not process resume: {exc}") from exc
@@ -291,7 +310,8 @@ async def interview_persona(req: ChatRequest) -> dict:
     info = coach.persona_public(coach._state["persona"])
     preset_file = AUDIO_DIR / f"persona_{req.message}.wav"
     if preset_file.exists() and preset_file.stat().st_size > 0:
-        audio_url = f"/static/audio/{preset_file.name}"
+        # version by mtime so a regenerated greeting is never served from cache
+        audio_url = f"/static/audio/{preset_file.name}?v={int(preset_file.stat().st_mtime)}"
     else:
         greeting = f"Switching mode. I'm now {info['label']}. {info['tagline']}."
         try:
@@ -309,7 +329,9 @@ async def interview_persona(req: ChatRequest) -> dict:
 async def interview_answer(req: ChatRequest) -> dict:
     started = time.time()
     try:
-        result = coach.score_answer(req.message, delivery=req.delivery)
+        result = coach.score_answer(
+            req.message, setup=req.setup, edited=req.edited
+        )
     except Exception as exc:
         raise HTTPException(502, f"scoring failed: {exc}") from exc
     spoken = result.get("spoken_feedback") or result.get("verdict") or ""
@@ -328,6 +350,50 @@ async def interview_answer(req: ChatRequest) -> dict:
     }
 
 
+@app.post("/api/interview/retry")
+async def interview_retry(req: ChatRequest) -> dict:
+    """Re-answer an earlier question and return what changed since attempt 1."""
+    if req.question_id is None:
+        raise HTTPException(400, "question_id is required to retry")
+    started = time.time()
+    try:
+        result = coach.retry_answer(
+            req.question_id,
+            req.message,
+            setup=req.setup,
+            edited=req.edited,
+        )
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(502, f"retry scoring failed: {exc}") from exc
+    spoken = result.get("spoken_feedback") or result.get("verdict") or ""
+    print(
+        f"  [interview] retry scored in {time.time() - started:.1f}s "
+        f"(attempt {result['attempt']}, {result['score']}/100)"
+    )
+    try:
+        audio_url = await synthesize_audio(spoken, voice=coach.persona_voice())
+    except Exception as exc:
+        print(f"  [tts] retry audio failed: {exc}")
+        audio_url = ""
+    return {**result, "audio_url": audio_url}
+
+
+@app.post("/api/interview/jd")
+async def interview_jd(req: ChatRequest) -> dict:
+    """Ground the question set in a pasted job description."""
+    started = time.time()
+    try:
+        result = coach.set_jd(req.message)
+    except Exception as exc:
+        raise HTTPException(
+            400, f"could not ground questions in that JD: {exc}"
+        ) from exc
+    print(f"  [interview] JD grounded in {time.time() - started:.1f}s")
+    return {**result, "current_question": coach.current_question()}
+
+
 @app.get("/api/interview/state")
 async def interview_state() -> dict:
     return {**coach.state(), "current_question": coach.current_question()}
@@ -337,6 +403,77 @@ async def interview_state() -> dict:
 async def interview_reset() -> dict:
     coach.reset()
     return {"ok": True}
+
+
+# ------------------------------------------------------- local practice history
+
+@app.get("/api/history")
+async def history() -> dict:
+    """Local, on-device practice history. Exportable, deletable, never uploaded."""
+    try:
+        return {
+            "sessions": store.sessions(),
+            "competencies": store.competency_history(),
+            "weak": store.weak_competencies(),
+            "behaviour": store.behaviour_stats(),
+            "db_path": str(store.DB_PATH),
+        }
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(500, f"history unavailable: {exc}") from exc
+
+
+@app.get("/api/eval/error-bars")
+async def eval_error_bars() -> dict:
+    """Published validation numbers for Aria's scores. Read-only.
+
+    Generated offline by ``scripts/errorbars.py`` (developer tooling); the
+    candidate never rates anything. Returns ``available: False`` until the
+    benchmark has been scored.
+    """
+    try:
+        report = errorbars.load_report()
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(500, f"could not read the report: {exc}") from exc
+    if not report:
+        return {"available": False}
+    return {"available": True, **report}
+
+
+@app.get("/api/history/export")
+async def history_export() -> dict:
+    try:
+        return store.export_json()
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(500, f"export failed: {exc}") from exc
+
+
+@app.post("/api/history/import")
+async def history_import(request: Request) -> dict:
+    try:
+        data = await request.json()
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(400, "invalid JSON body") from exc
+    try:
+        return {**store.import_json(data), "ok": True}
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(400, f"import failed: {exc}") from exc
+
+
+@app.post("/api/history/clear")
+async def history_clear() -> dict:
+    try:
+        store.clear()
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(500, f"could not clear history: {exc}") from exc
+    return {"ok": True}
+
+
+@app.get("/api/history/session/{session_id}")
+async def history_session(session_id: int) -> dict:
+    try:
+        return store.session_detail(session_id)
+    except ValueError as exc:
+        raise HTTPException(404, str(exc)) from exc
 
 
 # serve generated audio BEFORE the SPA catch-all mount

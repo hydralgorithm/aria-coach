@@ -6,6 +6,16 @@ know *why* the code looks the way it does, and to catch regressions.
 
 Everything still runs on-device. No video leaves the browser.
 
+> **Update — affect readouts removed (hackathon step 1).** The smile, warmth,
+> tension, blink and eye-contact signals described below were removed from the
+> product on legal grounds: **EU AI Act Article 5(1)(f)** prohibits inferring
+> emotions in the workplace and education, and has been in force since
+> 2 Feb 2025. The tracker now powers a **camera setup check only** — are you in
+> frame, is your head oriented toward the camera, is anyone else visible — and
+> none of it touches the score. The maths below is retained because it is
+> tested and because the framing metric is built on the same head-pose
+> baseline.
+
 ---
 
 ## The two reported symptoms
@@ -181,11 +191,13 @@ All delivery-metric checks passed.
 
 | Metric | Meaning | Not |
 |---|---|---|
-| **engagement** | Share of the answer spent oriented toward the interviewer, calibrated to your own neutral pose. | "How hard are you staring into the lens" |
-| **warmth** | Smile intensity over time. | Forced smiling |
-| **tension** | Brow furrow / lip press. | Judgement of your competence |
-| **blinks/min** | Rate over the observed window, or `—` if the answer was too short. | A score for short answers |
-| **steadiness** | Head movement variance about your baseline. | "Move less" — some movement is natural |
+| **facing** | Share of the answer with the head oriented toward the camera, calibrated to your own neutral pose. | Eye contact, emotion, or a competence signal |
+| **face visible %** | Share of the answer with a face detected in frame. | A quality score |
+| **multi-face** | Frames with more than one face present. | Any judgement about who is there |
+
+The affect metrics (smile, warmth, tension, blink, steadiness) are still
+computed by tested pure functions, but they are no longer surfaced anywhere and
+none of them is sent to the scoring model.
 
 ### Practical guidance
 
@@ -219,11 +231,11 @@ All delivery-metric checks passed.
 | `frontend/src/lib/faceMetrics.ts` | **New.** Pure, tested metric maths and tuning constants with documented rationale. |
 | `frontend/scripts/face-metrics-test.mjs` | **New.** 14 checks covering every regression above. |
 | `frontend/src/hooks/useFaceAnalysis.ts` | Rewritten to use the module; fixes blink rate, observed-time accounting, face identity, aversion persistence and render throttling. |
-| `frontend/src/components/DeliveryMeter.tsx` | "eye contact" → "engagement"; honest blink display; calibration status. |
+| `frontend/src/components/CameraSetup.tsx` | (was `DeliveryMeter.tsx`) "eye contact" → "engagement" → then reframed to a framing/visibility check with no affect readouts. |
 | `frontend/src/components/InterviewView.tsx` | Field names and labels updated. |
 | `frontend/src/hooks/useInterview.ts` | Summary type updated. |
 | `frontend/src/App.tsx` | Typed answers now get a delivery window. |
-| `coach.py` | Summary fields renamed; `SCORE_SYSTEM` taught how to read the new numbers. |
+| `coach.py` | Summary fields renamed; `SCORE_SYSTEM` taught how to read the new numbers. Later: delivery removed from scoring entirely — the model never sees the camera metrics. |
 
 ### References
 

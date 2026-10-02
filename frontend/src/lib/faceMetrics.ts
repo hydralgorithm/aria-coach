@@ -161,12 +161,12 @@ export type EngagementInput = {
  * posture look like a fault.
  */
 export function engagementFromPose(input: EngagementInput): number {
-  const dyaw = input.yawDeg - input.baselineYaw
-  const dpitch = input.pitchDeg - input.baselinePitch
-
-  const head =
-    plateau(dyaw, GAZE.neutralYaw, GAZE.aversionYaw) *
-    plateau(dpitch, GAZE.neutralPitch, GAZE.aversionPitch)
+  const head = headFacing(
+    input.yawDeg,
+    input.pitchDeg,
+    input.baselineYaw,
+    input.baselinePitch
+  )
 
   // Lateral gaze is a real signal (looking at something beside the camera).
   // Vertical is discounted because reading the question looks like this.
@@ -175,6 +175,26 @@ export function engagementFromPose(input: EngagementInput): number {
     GAZE.verticalEyeWeight * input.gaze.vertical
 
   return clamp01(head * (1 - eyePenalty))
+}
+
+/**
+ * Head orientation toward the camera, from head pose alone.
+ *
+ * This is a framing / visibility check — "is your head pointed at the camera" —
+ * not eye contact and not an emotion. It is the only facial signal the camera
+ * setup rehearsal uses; the affect metrics below are retained as pure maths but
+ * are deliberately not surfaced (see DELIVERY-METRICS.md).
+ */
+export function headFacing(
+  yawDeg: number,
+  pitchDeg: number,
+  baselineYaw = 0,
+  baselinePitch = 0
+): number {
+  return clamp01(
+    plateau(yawDeg - baselineYaw, GAZE.neutralYaw, GAZE.aversionYaw) *
+      plateau(pitchDeg - baselinePitch, GAZE.neutralPitch, GAZE.aversionPitch)
+  )
 }
 
 /**

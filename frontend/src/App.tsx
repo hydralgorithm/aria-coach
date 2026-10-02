@@ -16,11 +16,15 @@ import {
 
 import { Button } from "@/components/ui/button"
 import { AvatarOrb } from "@/components/ui/avatar-orb"
-import { ThinkingOrb } from "@/components/ui/thinking-orbs"
+import { SiriOrb } from "@/components/ui/siri-orb"
 import { BorderBeam } from "@/components/ui/border-beam"
 import DebugPanel from "@/components/DebugPanel"
 import InterviewView from "@/components/InterviewView"
-import DeliveryMeter from "@/components/DeliveryMeter"
+import CameraSetup from "@/components/CameraSetup"
+import WhereItRuns from "@/components/WhereItRuns"
+// Practice history & progress panel
+import ProgressPanel from "@/components/ProgressPanel"
+import ValidationPanel from "@/components/ValidationPanel"
 import { useVoice, type ChatStage } from "@/hooks/useVoice"
 import { useInterview } from "@/hooks/useInterview"
 import { useFaceAnalysis } from "@/hooks/useFaceAnalysis"
@@ -171,8 +175,17 @@ export default function App() {
 
   const router = useCallback(
     (text: string) => {
-      if (mode === "interview") void interview.submitAnswer(text, face.endTurn())
-      else handleTranscript(text)
+      // Interview answers stop at the transcript gate: capture the camera-setup
+      // window now, but score only after the user confirms/fixes the transcript.
+      if (mode === "interview") {
+        if (interview.questions.length > 0)
+          interview.reviewAnswer(
+            text,
+            face.endTurn(),
+            interview.retryTarget?.question.id
+          )
+        else void interview.submitAnswer(text, face.endTurn()) // surfaces the error
+      } else handleTranscript(text)
     },
     [mode, interview, handleTranscript, face]
   )
@@ -191,9 +204,10 @@ export default function App() {
   }, [])
 
   const startAnswering = useCallback(() => {
+    if (mode === "interview" && interview.pending) return
     if (mode === "interview") face.beginTurn()
     start()
-  }, [mode, face, start])
+  }, [mode, face, start, interview.pending])
 
   const interruptToListen = useCallback(() => {
     abortRef.current?.abort()
@@ -211,11 +225,12 @@ export default function App() {
       e.preventDefault()
       if (stage === "listening") stop()
       else if (speaking || thinking) interruptToListen()
-      else if (stage === "idle") start()
+      else if (stage === "idle" && !(mode === "interview" && interview.pending))
+        start()
     }
     window.addEventListener("keydown", onKey)
     return () => window.removeEventListener("keydown", onKey)
-  }, [stage, speaking, thinking, start, stop, interruptToListen])
+  }, [stage, speaking, thinking, start, stop, interruptToListen, mode, interview.pending])
 
   const onMicClick = () => {
     if (stage === "listening") stop()
@@ -230,7 +245,15 @@ export default function App() {
     setDraft("")
     stopPlayback()
     if (mode === "interview") {
-      void interview.submitAnswer(text, face.endTurn())
+      // if the transcript gate is open, typed text becomes the corrected answer
+      if (interview.pending) void interview.confirmPending(text, false)
+      else if (interview.retryTarget)
+        void interview.retryAnswer(
+          text,
+          face.endTurn(),
+          interview.retryTarget.question.id
+        )
+      else void interview.submitAnswer(text, face.endTurn())
       return
     }
     setMessages((m) => [...m, { id: ++nextIdRef.current, role: "user", text }])
@@ -321,6 +344,9 @@ export default function App() {
 
         {/* Actions */}
         <div className="order-2 sm:order-3 flex items-center gap-1.5">
+          <ProgressPanel />
+          <ValidationPanel />
+          <WhereItRuns />
           <button
             onClick={() => setShowDebug((v) => !v)}
             title="Mic diagnostics (D)"
@@ -355,7 +381,10 @@ export default function App() {
             analyzing={interview.analyzing}
             scoring={interview.scoring}
             error={interview.error}
-            onUpload={(f) => void interview.loadResume(f)}
+            onUpload={(f, jd) => void interview.loadResume(f, jd)}
+            onApplyJd={(jd) => void interview.applyJd(jd)}
+            jd={interview.jd}
+            coverage={interview.coverage}
             onPersona={(id) => void interview.choosePersona(id)}
             onReset={() => void interview.reset()}
             stage={stage}
@@ -363,7 +392,24 @@ export default function App() {
             speaking={speaking}
             start={startAnswering}
             stop={stop}
-            deliverySummary={interview.deliverySummary}
+            setupSummary={interview.setupSummary}
+            parse={interview.parse}
+            pending={interview.pending}
+            onConfirmPending={(t, edited) =>
+              void interview.confirmPending(t, edited)
+            }
+            onDiscardPending={() => interview.discardPending()}
+            retrying={interview.retrying}
+            retryTarget={interview.retryTarget}
+            retryResults={interview.retryResults}
+            onRetry={(q, i) => interview.startRetry(q, i)}
+            onRetryAnswer={(t) => {
+              const target = interview.retryTarget
+              if (target)
+                void interview.retryAnswer(t, face.endTurn(), target.question.id)
+            }}
+            onCancelRetry={() => interview.cancelRetry()}
+            behaviour={interview.behaviour}
           />
         </main>
       ) : (
@@ -457,7 +503,16 @@ export default function App() {
                 className="flex gap-3"
               >
                 <div className="flex size-8 shrink-0 items-center justify-center">
-                  <ThinkingOrb state="working" size={64} theme="dark" className="!size-8" />
+                  <SiriOrb
+                    size="32px"
+                    animationDuration={12}
+                    colors={{
+                      bg: "oklch(12% 0.02 264)",
+                      c1: "oklch(65% 0.22 290)",
+                      c2: "oklch(75% 0.18 200)",
+                      c3: "oklch(60% 0.25 270)",
+                    }}
+                  />
                 </div>
                 <div className="flex items-center gap-2 rounded-2xl rounded-tl-sm border border-white/[0.08] bg-white/[0.05] px-4 py-2.5 text-xs text-white/40 backdrop-blur-xl">
                   Aria is thinking…
@@ -578,9 +633,9 @@ export default function App() {
         <audio ref={audioRef} hidden />
       </footer>
 
-      {/* ── Delivery meter ── */}
+      {/* ── Camera setup check ── */}
       {mode === "interview" && interview.questions.length > 0 && (
-        <DeliveryMeter
+        <CameraSetup
           videoRef={face.videoRef}
           metrics={face.metrics}
           enabled={face.enabled}

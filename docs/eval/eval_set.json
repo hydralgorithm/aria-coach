@@ -1,0 +1,205 @@
+{
+  "version": 1,
+  "notes": "Fixed evaluation set for Aria's published error bars. 24 answers = 12 representative interview questions, each with one deliberately weak and one deliberately strong answer so the agreement statistics have real spread. Human raters score each answer on Aria's five dimensions (same 0-25/0-25/0-20/0-15/0-15 maxima). The 'quality' field is only a sanity label and is never used in the statistics. Answers are written for the benchmark, not transcribed from real candidates.",
+  "dimensions": {
+    "relevance_structure": 25,
+    "specificity_evidence": 25,
+    "impact_ownership": 20,
+    "communication": 15,
+    "self_awareness": 15
+  },
+  "answers": [
+    {
+      "id": 1,
+      "question": "Tell me about a time you owned a project end to end.",
+      "competency": "ownership",
+      "qtype": "behavioral",
+      "quality": "weak",
+      "answer": "I was part of a team that launched a feature. We worked on it for a while and it went live. It was a good experience and I learned a lot from the team."
+    },
+    {
+      "id": 2,
+      "question": "Tell me about a time you owned a project end to end.",
+      "competency": "ownership",
+      "qtype": "behavioral",
+      "quality": "strong",
+      "answer": "I owned the checkout reliability workstream end to end. I set the error-budget policy, ran the weekly review, and rewrote the retry layer myself. That cut failed payments by 38% over a quarter, and I presented the post-mortem to the payments org."
+    },
+    {
+      "id": 3,
+      "question": "Describe a time you had to prioritise under a tight deadline.",
+      "competency": "prioritisation",
+      "qtype": "behavioral",
+      "quality": "weak",
+      "answer": "I just tried to do everything at once and worked late. Some things slipped but we managed in the end. I think prioritising is important."
+    },
+    {
+      "id": 4,
+      "question": "Describe a time you had to prioritise under a tight deadline.",
+      "competency": "prioritisation",
+      "qtype": "behavioral",
+      "quality": "strong",
+      "answer": "Two days before a release I had a P1 bug, a compliance deadline and a blocked mentee. I ranked by customer impact and irreversibility: I took the P1 myself, moved compliance to a teammate who had the context, and gave the mentee a smaller unblocked task. We shipped on time and I fixed the P1 in four hours."
+    },
+    {
+      "id": 5,
+      "question": "Tell me about a conflict with a teammate and how you resolved it.",
+      "competency": "conflict resolution",
+      "qtype": "behavioral",
+      "quality": "weak",
+      "answer": "There was some disagreement with a coworker but we talked about it and it was fine afterwards. I generally try to avoid conflict because it is not productive."
+    },
+    {
+      "id": 6,
+      "question": "Tell me about a conflict with a teammate and how you resolved it.",
+      "competency": "conflict resolution",
+      "qtype": "behavioral",
+      "quality": "strong",
+      "answer": "A senior engineer and I disagreed on whether notifications should use a queue or a cron job. I asked us each to write down our concerns, then scored both options against latency and ops cost. The queue won on the stated requirements, so I said so, and we adopted his retry design. We later co-authored the migration."
+    },
+    {
+      "id": 7,
+      "question": "Give an example of a time you failed and what you learned.",
+      "competency": "learning from failure",
+      "qtype": "behavioral",
+      "quality": "weak",
+      "answer": "I once made a mistake and it was not great. But I moved on and things got better. I always try to do my best and learn from whatever happens."
+    },
+    {
+      "id": 8,
+      "question": "Give an example of a time you failed and what you learned.",
+      "competency": "learning from failure",
+      "qtype": "behavioral",
+      "quality": "strong",
+      "answer": "I shipped a caching change that served stale prices to about 2,000 users. I missed a cache-invalidation path in review. I rolled it back in 20 minutes, wrote the post-mortem, and added an integration test and a canary rule for that class of change. I now treat invalidation as the risky half of any cache design."
+    },
+    {
+      "id": 9,
+      "question": "Walk me through a technical decision you made and the trade-offs.",
+      "competency": "technical depth",
+      "qtype": "technical",
+      "quality": "weak",
+      "answer": "I chose a database for the project because it seemed like the popular choice. It worked fine for what we needed. There are probably other options too but this one was okay."
+    },
+    {
+      "id": 10,
+      "question": "Walk me through a technical decision you made and the trade-offs.",
+      "competency": "technical depth",
+      "qtype": "technical",
+      "quality": "strong",
+      "answer": "For the audit log I chose append-only Postgres over Kafka. Kafka handled 10x the throughput, but we needed sub-second ad-hoc queries by user and team, and a Kafka read model would have doubled the operational surface. Postgres held our 3k writes per second with headroom, so I picked it and documented the throughput ceiling that would force a revisit."
+    },
+    {
+      "id": 11,
+      "question": "How do you make sure your work is clear to non-technical stakeholders?",
+      "competency": "communication",
+      "qtype": "behavioral",
+      "quality": "weak",
+      "answer": "I send updates and explain things in simple terms. If people have questions they can ask me. Communication is really important in a team."
+    },
+    {
+      "id": 12,
+      "question": "How do you make sure your work is clear to non-technical stakeholders?",
+      "competency": "communication",
+      "qtype": "behavioral",
+      "quality": "strong",
+      "answer": "I write a one-paragraph plain-language summary before any technical detail: what changes for the customer, when, and what could go wrong. For the billing migration I sent a two-line weekly update with a risk flag and a decision date. By week three the finance lead could describe the rollout to her own team without me in the room."
+    },
+    {
+      "id": 13,
+      "question": "Why are you interested in this role?",
+      "competency": "motivation",
+      "qtype": "motivation",
+      "quality": "weak",
+      "answer": "I am looking for a new opportunity and your company is a good company. I think I would be a good fit and I need a job where I can grow."
+    },
+    {
+      "id": 14,
+      "question": "Why are you interested in this role?",
+      "competency": "motivation",
+      "qtype": "motivation",
+      "quality": "strong",
+      "answer": "I have spent two years making internal developer tooling faster, and your posting is about exactly that at a larger scale. Your public docs mention a push to cut build times in half; I did that once for our monorepo and I want to do it where thousands of engineers feel it. The on-call rotation also matches how I like to work."
+    },
+    {
+      "id": 15,
+      "question": "Tell me about a time you collaborated across teams.",
+      "competency": "collaboration",
+      "qtype": "behavioral",
+      "quality": "weak",
+      "answer": "I worked with another team on a shared thing. We had meetings and it went okay. Collaboration with other teams is something I am comfortable with."
+    },
+    {
+      "id": 16,
+      "question": "Tell me about a time you collaborated across teams.",
+      "competency": "collaboration",
+      "qtype": "behavioral",
+      "quality": "strong",
+      "answer": "Payments needed a signed webhook from the identity team, and neither team's roadmap had room. I wrote a one-page interface contract with retry and idempotency rules, got both tech leads to sign it, and we built each side in parallel. The integration took half a day instead of the two weeks we had budgeted."
+    },
+    {
+      "id": 17,
+      "question": "Describe a situation where requirements were ambiguous.",
+      "competency": "ownership",
+      "qtype": "behavioral",
+      "quality": "weak",
+      "answer": "The requirements were not very clear so I waited for someone to clarify them. Eventually the manager explained what he wanted. I just did what I was told after that."
+    },
+    {
+      "id": 18,
+      "question": "Describe a situation where requirements were ambiguous.",
+      "competency": "ownership",
+      "qtype": "behavioral",
+      "quality": "strong",
+      "answer": "The brief said 'make search better' with no metric. I wrote down three candidate interpretations, estimated each, and sent them to the product lead in one message. He confirmed relevance and speed mattered most. I shipped a scoped version in two sprints and measured click-through, which went from 12% to 19%."
+    },
+    {
+      "id": 19,
+      "question": "How do you handle critical feedback?",
+      "competency": "self-awareness",
+      "qtype": "behavioral",
+      "quality": "weak",
+      "answer": "I take feedback well and I do not get upset. If someone tells me something I try to fix it. I think I am pretty open to criticism."
+    },
+    {
+      "id": 20,
+      "question": "How do you handle critical feedback?",
+      "competency": "self-awareness",
+      "qtype": "behavioral",
+      "quality": "strong",
+      "answer": "My lead told me my design docs were too long and buried the decision. It stung, but he was right. I rewrote two docs with the recommendation and risks in the first paragraph, and asked him to check the next one. He stopped commenting on length after that, and I now write the decision first by habit."
+    },
+    {
+      "id": 21,
+      "question": "Tell me about a time you improved a process or a metric.",
+      "competency": "impact",
+      "qtype": "behavioral",
+      "quality": "weak",
+      "answer": "I improved some parts of the process where I could. Things got a little better and the team seemed happier. I think continuous improvement is important."
+    },
+    {
+      "id": 22,
+      "question": "Tell me about a time you improved a process or a metric.",
+      "competency": "impact",
+      "qtype": "behavioral",
+      "quality": "strong",
+      "answer": "Our deploy pipeline took 42 minutes and engineers batched changes to avoid it. I profiled the build, cached the dependency layer, and parallelised the test shards. Deploy time dropped to 11 minutes and daily deploys went from about 3 to 14. I wrote up the change so the platform team could keep improving it."
+    },
+    {
+      "id": 23,
+      "question": "How would you debug a slow API endpoint?",
+      "competency": "technical depth",
+      "qtype": "technical",
+      "quality": "weak",
+      "answer": "I would look at the code and see if something is slow. Maybe add some logs. Then I would try to fix whatever looks wrong and test again."
+    },
+    {
+      "id": 24,
+      "question": "How would you debug a slow API endpoint?",
+      "competency": "technical depth",
+      "qtype": "technical",
+      "quality": "strong",
+      "answer": "First I confirm where the time goes: trace the request and compare p50 against p99 to separate a steady cost from a tail problem. If it is the database I check the query plan for a missing index or an N+1. For our orders endpoint that was an N+1 across line items; batching it cut p99 from 1.9s to 220ms."
+    }
+  ]
+}
