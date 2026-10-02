@@ -11,6 +11,14 @@ import argparse
 import sys
 import time
 
+# Windows consoles default to cp1252, which crashes (UnicodeEncodeError) on
+# smart punctuation the model emits: ' — – ‑ etc. Force UTF-8 output.
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
 import brain
 import tts
 from audio import record_until_silence
