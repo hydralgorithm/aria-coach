@@ -47,6 +47,23 @@ CREATE TABLE IF NOT EXISTS answers (
 );
 CREATE INDEX IF NOT EXISTS idx_answers_session ON answers(session_id);
 CREATE INDEX IF NOT EXISTS idx_answers_competency ON answers(competency);
+-- Free-chat transcript. Tracked for the same reason as the practice tables:
+-- the user should be able to see, export and delete what they said.
+CREATE TABLE IF NOT EXISTS chat_turns (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_at TEXT    NOT NULL DEFAULT '',
+    session    INTEGER NOT NULL DEFAULT 1,
+    prompt     TEXT    NOT NULL DEFAULT '',
+    reply      TEXT    NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS idx_chat_session ON chat_turns(session);
+-- Monotonic conversation counter. It has to be stored rather than derived from
+-- MAX(session), otherwise "New session" before the first turn hands out the
+-- same id twice and two conversations collapse into one.
+CREATE TABLE IF NOT EXISTS store_meta (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL DEFAULT ''
+);
 -- Published error bars: repeated scoring runs over the fixed eval set, plus
 -- optional runs from an independent judge model. Kept apart from the personal
 -- practice tables so clearing one's practice history never destroys the eval
@@ -170,6 +187,29 @@ def start_session(
         return int(cur.lastrowid)
 
 
+def update_answer(row_id: int, record: dict) -> None:
+    """Replace a stored answer in place after a transcript correction.
+
+    A correction is not a new attempt, so it updates the existing row (and marks
+    it edited) rather than inserting another one.
+    """
+    breakdown = record.get("breakdown")
+    if not isinstance(breakdown, str):
+        breakdown = json.dumps(breakdown or {})
+    with _db() as conn:
+        conn.execute(
+            """UPDATE answers
+               SET answer = ?, score = ?, breakdown = ?, edited = 1
+               WHERE id = ?""",
+            (
+                str(record.get("answer") or "")[:8000],
+                int(record.get("score") or 0),
+                breakdown,
+                int(row_id or 0),
+            ),
+        )
+
+
 def save_answer(session_id: int | None, record: dict) -> int:
     with _db() as conn:
         return _insert_answer(conn, session_id or 0, record)
@@ -179,6 +219,8 @@ def clear() -> None:
     with _db() as conn:
         conn.execute("DELETE FROM answers")
         conn.execute("DELETE FROM sessions")
+        conn.execute("DELETE FROM chat_turns")
+        conn.execute("DELETE FROM store_meta")
 
 
 # ------------------------------------------------------------------- read side
@@ -313,6 +355,84 @@ def behaviour_stats() -> dict:
     }
 
 
+# ------------------------------------------------------------------ free chat
+
+
+def start_chat_session() -> int:
+    """Open the next conversation number, so turns group into sessions."""
+    with _db() as conn:
+        row = conn.execute(
+            "SELECT value FROM store_meta WHERE key = 'chat_session'"
+        ).fetchone()
+        if row is not None:
+            nxt = int(row["value"] or 0) + 1
+        else:
+            highest = int(
+                conn.execute(
+                    "SELECT COALESCE(MAX(session), 0) s FROM chat_turns"
+                ).fetchone()["s"]
+            )
+            nxt = highest + 1
+        conn.execute(
+            """INSERT INTO store_meta (key, value) VALUES ('chat_session', ?)
+               ON CONFLICT(key) DO UPDATE SET value = excluded.value""",
+            (str(nxt),),
+        )
+    return nxt
+
+
+def save_chat_turn(prompt: str, reply: str, session: int = 1) -> int:
+    with _db() as conn:
+        cur = conn.execute(
+            """INSERT INTO chat_turns (created_at, session, prompt, reply)
+               VALUES (?,?,?,?)""",
+            (
+                _now(),
+                int(session or 1),
+                str(prompt or "")[:4000],
+                str(reply or "")[:4000],
+            ),
+        )
+        return int(cur.lastrowid)
+
+
+def chat_sessions(limit: int = 20) -> list[dict]:
+    """Recent conversations, newest first, with a preview line."""
+    with _db() as conn:
+        rows = conn.execute(
+            "SELECT session, created_at, prompt FROM chat_turns ORDER BY id"
+        ).fetchall()
+    grouped: dict[int, dict] = {}
+    for row in rows:
+        session = int(row["session"])
+        entry = grouped.setdefault(
+            session,
+            {
+                "session": session,
+                "turns": 0,
+                "started_at": row["created_at"],
+                "preview": str(row["prompt"])[:120],
+            },
+        )
+        entry["turns"] += 1
+    ordered = sorted(grouped.values(), key=lambda g: g["session"], reverse=True)
+    return ordered[:limit]
+
+
+def chat_count() -> int:
+    with _db() as conn:
+        return int(conn.execute("SELECT COUNT(*) c FROM chat_turns").fetchone()["c"])
+
+
+def chat_turns_for(session: int) -> list[dict]:
+    with _db() as conn:
+        rows = conn.execute(
+            "SELECT created_at, prompt, reply FROM chat_turns WHERE session = ? ORDER BY id",
+            (int(session),),
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
 # --------------------------------------------------------------- export/import
 
 
@@ -324,11 +444,15 @@ def export_json() -> dict:
         answer_rows = [
             dict(r) for r in conn.execute("SELECT * FROM answers ORDER BY id")
         ]
+        chat_rows = [
+            dict(r) for r in conn.execute("SELECT * FROM chat_turns ORDER BY id")
+        ]
     return {
         "version": 1,
         "exported_at": _now(),
         "sessions": session_rows,
         "answers": answer_rows,
+        "chat_turns": chat_rows,
     }
 
 
@@ -433,4 +557,33 @@ def import_json(data: dict) -> dict:
             id_map[int(s.get("id") or 0)] = int(cur.lastrowid)
         for a in answers_in:
             _insert_answer(conn, id_map.get(int(a.get("session_id") or 0), 0), a)
-    return {"sessions": len(sessions_in), "answers": len(answers_in)}
+        # chat sessions are plain integers, so offset them to avoid colliding
+        # with conversations already on this device
+        chat_in = data.get("chat_turns") or []
+        row = conn.execute("SELECT COALESCE(MAX(session), 0) s FROM chat_turns").fetchone()
+        offset = int(row["s"] or 0)
+        for t in chat_in:
+            conn.execute(
+                """INSERT INTO chat_turns (created_at, session, prompt, reply)
+                   VALUES (?,?,?,?)""",
+                (
+                    str(t.get("created_at") or _now()),
+                    int(t.get("session") or 1) + offset,
+                    str(t.get("prompt") or "")[:4000],
+                    str(t.get("reply") or "")[:4000],
+                ),
+            )
+        # keep the counter ahead of anything just imported
+        highest = int(
+            conn.execute("SELECT COALESCE(MAX(session), 0) s FROM chat_turns").fetchone()["s"]
+        )
+        conn.execute(
+            """INSERT INTO store_meta (key, value) VALUES ('chat_session', ?)
+               ON CONFLICT(key) DO UPDATE SET value = excluded.value""",
+            (str(highest),),
+        )
+    return {
+        "sessions": len(sessions_in),
+        "answers": len(answers_in),
+        "chat_turns": len(chat_in),
+    }

@@ -126,10 +126,36 @@ class ChatRequest(BaseModel):
     message: str
     # optional camera-setup metrics from the local face tracker (never scored)
     setup: dict | None = None
-    # the candidate corrected the transcript at the gate (behaviour, not a face)
+    # the candidate corrected the transcript after scoring (behaviour, not a face)
     edited: bool = False
     # set when re-answering a specific question (retry / spaced practice)
     question_id: int | None = None
+    # "voice" when this came from the microphone, "typed" otherwise
+    source: str = "typed"
+
+
+# Which free-chat conversation new turns belong to. Opened lazily on first use
+# and rolled forward by "New session", so the transcript groups into sessions.
+_chat_session: int | None = None
+
+
+def _open_chat_session() -> int:
+    try:
+        return store.start_chat_session()
+    except Exception as exc:  # noqa: BLE001 - history must never break chat
+        print(f"  [store] could not open a chat session: {exc}")
+        return 1
+
+
+def _remember_chat_turn(prompt: str, reply: str) -> None:
+    """Record one free-chat exchange locally. Never fatal."""
+    global _chat_session
+    if _chat_session is None:
+        _chat_session = _open_chat_session()
+    try:
+        store.save_chat_turn(prompt, reply, _chat_session)
+    except Exception as exc:  # noqa: BLE001
+        print(f"  [store] could not save the chat turn: {exc}")
 
 
 @app.post("/api/transcribe")
@@ -244,14 +270,17 @@ async def chat(req: ChatRequest) -> dict:
     except Exception as exc:
         print(f"  [tts] synthesize_audio failed: {exc}")
         audio_url = ""
+    _remember_chat_turn(req.message, reply)
     print(f"  [turn] {time.time() - started:.1f}s total")
     return {"reply": reply, "audio_url": audio_url}
 
 
 @app.post("/api/reset")
 async def reset() -> dict:
+    global _chat_session
     brain.reset_history()
-    return {"ok": True}
+    _chat_session = _open_chat_session()
+    return {"ok": True, "chat_session": _chat_session}
 
 
 # ------------------------------------------------------------- interview coach
@@ -330,7 +359,10 @@ async def interview_answer(req: ChatRequest) -> dict:
     started = time.time()
     try:
         result = coach.score_answer(
-            req.message, setup=req.setup, edited=req.edited
+            req.message,
+            setup=req.setup,
+            edited=req.edited,
+            source=req.source,
         )
     except Exception as exc:
         raise HTTPException(502, f"scoring failed: {exc}") from exc
@@ -348,6 +380,37 @@ async def interview_answer(req: ChatRequest) -> dict:
         **result,
         "audio_url": audio_url,
     }
+
+
+@app.post("/api/interview/rescore")
+async def interview_rescore(req: ChatRequest) -> dict:
+    """Re-score an existing answer after the transcript was corrected.
+
+    Replaces the same attempt - it is not a retry, so the behaviour counters
+    and competency averages are untouched by a misheard word.
+    """
+    if req.question_id is None:
+        raise HTTPException(400, "question_id is required to re-score")
+    started = time.time()
+    try:
+        result = coach.rescore_answer(req.question_id, req.message)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(502, f"re-scoring failed: {exc}") from exc
+    print(
+        f"  [interview] re-scored in {time.time() - started:.1f}s "
+        f"({result['score_before']} -> {result['score']}/100)"
+    )
+    try:
+        audio_url = await synthesize_audio(
+            result.get("spoken_feedback") or "",
+            voice=coach.persona_voice(),
+        )
+    except Exception as exc:
+        print(f"  [tts] rescore audio failed: {exc}")
+        audio_url = ""
+    return {**result, "audio_url": audio_url}
 
 
 @app.post("/api/interview/retry")
@@ -409,13 +472,17 @@ async def interview_reset() -> dict:
 
 @app.get("/api/history")
 async def history() -> dict:
-    """Local, on-device practice history. Exportable, deletable, never uploaded."""
+    """Local, on-device history. Exportable, deletable, never uploaded."""
     try:
         return {
             "sessions": store.sessions(),
             "competencies": store.competency_history(),
             "weak": store.weak_competencies(),
             "behaviour": store.behaviour_stats(),
+            "chat": {
+                "turns": store.chat_count(),
+                "sessions": store.chat_sessions(),
+            },
             "db_path": str(store.DB_PATH),
         }
     except Exception as exc:  # noqa: BLE001
@@ -474,6 +541,16 @@ async def history_session(session_id: int) -> dict:
         return store.session_detail(session_id)
     except ValueError as exc:
         raise HTTPException(404, str(exc)) from exc
+
+
+@app.get("/api/history/chat/{chat_session}")
+async def history_chat(chat_session: int) -> dict:
+    """Full transcript of one free-chat conversation."""
+    try:
+        turns = store.chat_turns_for(chat_session)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(500, f"history unavailable: {exc}") from exc
+    return {"session": chat_session, "turns": turns}
 
 
 # serve generated audio BEFORE the SPA catch-all mount

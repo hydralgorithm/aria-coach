@@ -13,7 +13,7 @@ Disk: ~2 GB (mostly the Kokoro model + Python/Node caches).
 ## 0. What this project is
 
 Aria is a **voice-first interview practice coach**. You talk to it; it shows you the
-transcript it heard, scores your answers on a real HR scorecard, cites the exact words
+transcript it heard (correctable, re-scorable), scores your answers on a real HR scorecard, cites the exact words
 behind every observation, and publishes how unreliable its own score is.
 
 | Part | Tech | Runs on | Cost |
@@ -283,8 +283,9 @@ python scripts/errorbars.py analyze  # rebuilds the report from whatever data ex
    parser actually read, plus flags for two-column layouts, tables, missing sections.
 2. **Paste a JD** → the Requirement × Evidence × Confidence map builds, and the questions
    are generated from the gaps.
-3. **Answer out loud** → the transcript gate appears. Edit a misheard word, confirm, and
-   watch the score reflect your corrected words.
+3. **Answer out loud** → Aria scores and replies immediately, and the scorecard shows the
+   transcript it heard. Click *Mic misheard something? Fix it*, correct a word, hit
+   **Re-score**, and watch the score move with the before/after shown.
 4. **Retry** any answered question → side-by-side diff with the numbers you added.
 5. **Your progress** (history icon) → behaviour stats and per-competency trends, stored
    only on this device.

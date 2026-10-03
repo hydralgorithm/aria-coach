@@ -22,7 +22,8 @@ Three defects are invisible to the candidate and measurable in the research:
    and ASR atypical-speech bias is documented as a live harm
    ([Ada Lovelace Institute, 2026](https://www.adalovelaceinstitute.org/report/scribe-and-prejudice/)).
    A candidate who answers perfectly can be told to "add more metrics" for a sentence
-   the *machine* got wrong. Aria shows you the transcript **before** anything is scored.
+   the *machine* got wrong. Aria scores instantly, then shows you the exact transcript it
+   scored and lets you correct a misheard word and re-score.
 
 2. **Nobody publishes how wrong their scores are.** LLM-as-judge shows low intra-rater
    reliability across identical runs, and forcing determinism makes agreement with humans
@@ -65,9 +66,11 @@ This is the brief's *"suggests improvements for ATS compatibility"* — without 
 second uncalibrated ATS score, because ATS vendor match-scores are opaque even by their
 own admission.
 
-### Transcript gate — the one moment you watch Aria be wrong, then right
-Voice never goes straight to scoring. You see the transcript, editable, and **nothing is
-scored until you confirm**. Fix one misheard word and watch the score move.
+### Correctable transcript — the one moment you watch Aria be wrong, then right
+Aria scores and answers the moment you stop speaking, so the interview stays a conversation.
+The transcript it actually scored sits on the scorecard as *mic heard* — fix one misheard
+word, hit **Re-score**, and watch the score move (62 → 78, +16) with the before/after shown
+to you. The correction updates the same attempt in place: one question, one record, one truth.
 
 ### Evidence-cited feedback
 Every strength, improvement and red flag is an object with a **verbatim quote**, verified
@@ -138,7 +141,7 @@ panel shows it live.
 
 | Task | Runs on | Why |
 |---|---|---|
-| Speech-to-text | Groq Whisper (**cloud**) | most accurate on accents; the transcript gate exists because *any* ASR can mishear |
+| Speech-to-text | Groq Whisper (**cloud**) | most accurate on accents; the correctable transcript exists because *any* ASR can mishear |
 | Résumé text extraction | **on-device** (PyMuPDF / Tesseract) | the raw text never leaves the machine |
 | Field extraction & scoring | Groq (**cloud**), local Ollama fallback | a small local model genuinely underperforms on rubric judgement |
 | Text-to-speech | **on-device** (Kokoro ONNX) | free credibility |
@@ -195,19 +198,73 @@ with the repo — nothing to download for the face tracker.
 
 ## Architecture
 
-```text
-Chrome
- ├─ microphone (MediaRecorder webm/opus)
- │    └─ POST /api/transcribe ──▶ Groq Whisper          (cloud)
- │         └─ transcript gate: editable, user-confirmed
- │              └─ POST /api/interview/answer ──▶ coach._score_question
- │                   ├─ SCORE_SYSTEM ──▶ Groq LLM (fallback: local Ollama)
- │                   ├─ _evidence()  ── verbatim quote verification (local)
- │                   └─ store.save_answer ──▶ local SQLite
- ├─ text ──▶ POST /api/chat ──▶ LLM ──▶ Kokoro ONNX ──▶ wav
- └─ camera ──▶ MediaPipe in-browser ──▶ setup notes only, never scored
+```mermaid
+flowchart TD
+    %% Styling
+    classDef client fill:#18181b,stroke:#818cf8,stroke-width:1.5px,color:#f4f4f5
+    classDef backend fill:#18181b,stroke:#38bdf8,stroke-width:1.5px,color:#f4f4f5
+    classDef cloud fill:#18181b,stroke:#a855f7,stroke-width:1.5px,color:#f4f4f5
+    classDef offline fill:#18181b,stroke:#34d399,stroke-width:1.5px,color:#f4f4f5
+    classDef storage fill:#18181b,stroke:#f43f5e,stroke-width:1.5px,color:#f4f4f5
 
-FastAPI (backend/server.py) serves frontend/dist and static/audio
+    subgraph Browser ["Client: In-Browser (React 19 + Tailwind)"]
+        direction TB
+        MIC["Microphone Capture<br/><code>MediaRecorder (webm/opus)</code>"]:::client
+        CAM["Camera Setup Check<br/><code>MediaPipe 3D Landmarker</code><br/><i>(Framing only, zero emotion scoring)</i>"]:::client
+        UI["Interactive UI & Scorecards<br/>• Correctable Transcript ('Mic Heard')<br/>• Side-by-side Retry Diff<br/>• ATS Parse Audit Display<br/>• Spaced Practice & Validation"]:::client
+        AUDIO_OUT["Audio Playback<br/><code>Web Audio API</code>"]:::client
+    end
+
+    subgraph LocalBackend ["Local Server: FastAPI (backend/server.py)"]
+        direction TB
+        ROUTER["API Router & Endpoints<br/><code>/api/*</code>"]:::backend
+        FFMPEG["FFmpeg Audio Converter<br/><code>16 kHz Mono WAV</code>"]:::backend
+        PARSER["Résumé Parser & ATS Audit<br/><code>PyMuPDF + Tesseract OCR</code><br/><i>(Deterministic, raw text never leaves device)</i>"]:::backend
+        COACH["Interview Engine (coach.py)<br/>• Question Generation from Gaps<br/>• Verbatim Quote Verification<br/>• Arithmetic Word-Level Diff"]:::backend
+        TTS["Local TTS Engine (tts.py)<br/><code>Kokoro ONNX (~353MB)</code>"]:::backend
+        DB[("Local Practice History<br/><code>SQLite: aria_history.db</code><br/><i>(Exportable, inspectable, private)</i>")]:::storage
+    end
+
+    subgraph External ["Cloud AI Services (Zero Data Retention)"]
+        direction TB
+        GROQ_ASR["Groq Whisper Large v3 Turbo<br/><i>Fast & Accent-Resilient STT</i>"]:::cloud
+        GROQ_LLM["Groq Llama 3.3 70B<br/><i>Primary Rubric Judgement & Coaching</i>"]:::cloud
+    end
+
+    subgraph FallbackEngine ["Local Fallback (Optional)"]
+        OLLAMA["Local Ollama LLM<br/><code>llama3.2:3b</code><br/><i>Offline Scoring & Chat</i>"]:::offline
+    end
+
+    %% Voice & Transcription Flow
+    MIC -->|"Raw webm/opus"| ROUTER
+    ROUTER --> FFMPEG
+    FFMPEG -->|"16 kHz WAV"| GROQ_ASR
+    GROQ_ASR -->|"ASR Transcript"| ROUTER
+    ROUTER -->|"Editable 'Mic Heard' Transcript"| UI
+
+    %% Resume & ATS Flow
+    UI -->|"Upload PDF / TXT"| ROUTER
+    ROUTER --> PARSER
+    PARSER -->|"ATS Parse Audit + Verified Spans"| COACH
+    COACH -->|"Targeted Questions & Gap Map"| UI
+
+    %% Answer & Scoring Flow
+    UI -->|"Submit / Edit Answer"| ROUTER
+    ROUTER --> COACH
+    COACH -->|"Scorecard Prompt"| GROQ_LLM
+    COACH -.->|"Offline Fallback"| OLLAMA
+    GROQ_LLM -->|"Raw Scores & Cites"| COACH
+    COACH -->|"Verify Verbatim Quotes"| COACH
+    COACH -->|"Save Attempt"| DB
+    COACH -->|"Verified Scorecard + Diff"| UI
+
+    %% Speech Synthesis Flow
+    COACH -->|"Interviewer Response Text"| TTS
+    TTS -->|"Synthesized Speech WAV"| ROUTER
+    ROUTER --> AUDIO_OUT
+
+    %% Local In-Browser Camera Feedback
+    CAM -.->|"Lighting & Framing Diagnostics"| UI
 ```
 
 | Module | Responsibility |

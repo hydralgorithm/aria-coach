@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "notes": "Fixed evaluation set for Aria's published error bars. 24 answers = 12 representative interview questions, each with one deliberately weak and one deliberately strong answer so the agreement statistics have real spread. Human raters score each answer on Aria's five dimensions (same 0-25/0-25/0-20/0-15/0-15 maxima). The 'quality' field is only a sanity label and is never used in the statistics. Answers are written for the benchmark, not transcribed from real candidates.",
+  "notes": "Fixed evaluation set for Aria's published error bars. 24 answers = 12 representative interview questions, each with one deliberately weak and one deliberately strong answer so the agreement statistics have real spread. Answers are written for the benchmark, not transcribed from real candidates, and the weak/strong labels are assigned by the same team that wrote the rubric. The 'quality' field IS the basis of the discrimination AUC in error-bars.json (see backend/errorbars.py: 257-258) - that test is therefore internally consistent rather than independent, and it is labelled a regression test, not a validation result. No human ratings have been collected; the candidate using Aria is never asked to grade it. Agreement with the independent judge model (llama3.2:3b) is kappa 0.33, reported as a limitation in the caveats.",
   "dimensions": {
     "relevance_structure": 25,
     "specificity_evidence": 25,

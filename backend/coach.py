@@ -187,6 +187,9 @@ _state: dict = {
     "coverage": {},
     # id of the row in the local history DB for this practice session
     "session_id": None,
+    # question id -> first-attempt row id, so a transcript correction can be
+    # written back over the same attempt instead of adding a retry
+    "answer_rows": {},
 }
 
 
@@ -194,6 +197,7 @@ def reset() -> None:
     persona = _state["persona"]
     for key in list(_state):
         _state[key] = {} if key == "structured" else []
+    _state["answer_rows"] = {}
     _state.update(
         filename="",
         resume="",
@@ -285,10 +289,14 @@ def _start_session() -> int | None:
         return None
 
 
-def _persist_answer(question: dict, record: dict, attempt: int, edited: bool) -> None:
-    """Record an answer in the local history DB. Never fatal."""
+def _persist_answer(question: dict, record: dict, attempt: int, edited: bool) -> int | None:
+    """Record an answer in the local history DB. Never fatal.
+
+    Returns the stored row id so a later transcript correction can overwrite the
+    same row. Only first attempts are remembered: retries are separate rows.
+    """
     try:
-        store.save_answer(
+        row_id = store.save_answer(
             _state.get("session_id"),
             {
                 "question_id": int(question.get("id") or 0),
@@ -305,6 +313,13 @@ def _persist_answer(question: dict, record: dict, attempt: int, edited: bool) ->
         )
     except Exception as exc:  # noqa: BLE001
         print(f"  [store] could not save the answer: {exc}")
+        return None
+    if attempt == 1:
+        try:
+            _state["answer_rows"][int(question.get("id") or 0)] = row_id
+        except Exception:  # noqa: BLE001 - bookkeeping must never break scoring
+            pass
+    return row_id
 
 
 def current_question() -> dict | None:
@@ -817,6 +832,10 @@ def _score_question(question: dict, answer: str) -> dict:
         "answer_revision": str(result.get("answer_revision", "")),
         "spoken_feedback": spoken_feedback,
         "setup": None,
+        # "voice" when it came from the mic (so the transcript can be corrected
+        # afterwards), "typed" when the candidate wrote it
+        "source": "typed",
+        "edited": False,
     }
 
 
@@ -935,24 +954,82 @@ def _retry_diff(before: dict, after: dict, attempt: int) -> dict:
 
 
 def score_answer(
-    answer: str, setup: dict | None = None, edited: bool = False
+    answer: str,
+    setup: dict | None = None,
+    edited: bool = False,
+    source: str = "typed",
 ) -> dict:
     """Score the candidate's answer to the current question.
 
-    `setup` is the local camera-setup summary for this answer. It is recorded
-    for the setup-rehearsal panel and NEVER enters the score: Aria does not
-    judge a face (EU AI Act Art. 5(1)(f)). `edited` records that the candidate
-    corrected the transcript at the gate (behaviour, not a face signal).
+    Scored immediately on the transcript exactly as transcribed - the candidate
+    is never blocked by a confirm step. `setup` is the local camera-setup
+    summary, recorded for the rehearsal panel and NEVER entering the score:
+    Aria does not judge a face (EU AI Act Art. 5(1)(f)). `edited` marks an
+    answer whose transcript was later corrected via :func:`rescore_answer`.
     """
     question = current_question()
     if question is None:
         raise ValueError("no current question — upload a resume first")
     record = _score_question(question, answer)
     record["setup"] = setup
+    record["source"] = "voice" if source == "voice" else "typed"
     _state["answers"].append(record)
     _persist_answer(question, record, attempt=1, edited=edited)
     _record_setup(question, setup)
     return {**record, "next_question": current_question(), "state": state()}
+
+
+def rescore_answer(question_id: int, answer: str) -> dict:
+    """Re-score an answer after the candidate corrected the transcript.
+
+    This replaces the same attempt rather than adding one. A correction is not
+    a retry, so it must not inflate the "retried" behaviour counter, add an
+    attempt to the history, or drag the competency average down with the score
+    the microphone produced by mistake.
+    """
+    try:
+        qid = int(question_id)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("invalid question id") from exc
+    question = next(
+        (q for q in _state["questions"] if int(q.get("id") or 0) == qid), None
+    )
+    if question is None:
+        raise ValueError("unknown question")
+    index = next(
+        (
+            i
+            for i, r in enumerate(_state["answers"])
+            if int(r.get("question_id") or 0) == qid
+        ),
+        None,
+    )
+    if index is None:
+        raise ValueError("no answer to re-score for that question")
+
+    before = _state["answers"][index]
+    record = _score_question(question, answer)
+    record["setup"] = before.get("setup")
+    record["source"] = "voice"
+    record["edited"] = True
+    record["rescored"] = True
+    _state["answers"][index] = record
+
+    row_id = (_state.get("answer_rows") or {}).get(qid)
+    if row_id:
+        try:
+            store.update_answer(row_id, record)
+        except Exception as exc:  # noqa: BLE001
+            print(f"  [store] could not update the corrected answer: {exc}")
+
+    score_before = int(before.get("score", 0) or 0)
+    return {
+        **record,
+        "score_before": score_before,
+        "score_delta": record["score"] - score_before,
+        "next_question": current_question(),
+        "state": state(),
+    }
 
 
 def retry_answer(

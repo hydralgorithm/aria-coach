@@ -113,9 +113,9 @@ Interview Copilot, Huru, Yoodli, Final Round AI, Big Interview, Rezi, Teal, Jobs
 DeepInterview, InterviewMentor — **all ship scores, none ship validation.** Cheapest credible
 differentiator available to us.
 
-### 3.4 Nobody ships the transcript gate
+### 3.4 Nobody ships a correctable transcript
 
-Searched editable-transcript-before-scoring across the whole category. Nothing. Meanwhile:
+Searched editable-transcript-after-scoring across the whole category. Nothing. Meanwhile:
 
 - [Meta-analysis of accent bias in employee interviews (Maindidze et al. 2025, *IJSA*)](https://onlinelibrary.wiley.com/doi/10.1111/ijsa.12519)
   — non-standard accents measurably reduce hireability ratings.
@@ -207,10 +207,12 @@ detection) and show **what the machine extracted** next to **what the candidate 
 Two-column layouts, tables, headers/footers and text-in-images break parsers and most
 candidates do not know. Every flag cites the specific parsing failure.
 
-### 3. Transcript gate — ✅ DONE (2026-10-03)
-Show the Whisper transcript **editable, before scoring**. Fix a word → rescore → score moves.
+### 3. Correctable transcript — ✅ DONE (2026-10-03, made non-blocking the same day)
+Show the Whisper transcript **editable, on the scorecard**. Fix a word → re-score → score moves.
 This is the strongest demo beat in the project: the only moment where the user sees Aria be
-wrong and then be right.
+wrong and then be right. It is deliberately **non-blocking**: Aria scores and answers the moment
+you stop speaking, so the demo still runs as a real-time conversation — you correct a misheard
+word whenever you notice, and the score moves under your hand.
 
 ### 4. Evidence-cited feedback — ✅ DONE (2026-10-03)
 Every strength and every gap must quote a transcript span or a resume line, or be explicitly
@@ -230,8 +232,8 @@ Framing that survives a knowledgeable judge: **"we use local where local is as g
 tell you exactly where it isn't."**
 
 **Reversal (user-approved 2026-10-03): STT stays on Groq.** The original plan made local STT the
-headline, but the product's whole thesis is that ASR mishears accents and the transcript gate
-exists to fix it. A small local model is *less* accurate on accents than `whisper-large-v3-turbo`,
+headline, but the product's whole thesis is that ASR mishears accents and the correctable
+transcript exists to fix it. A small local model is *less* accurate on accents than `whisper-large-v3-turbo`,
 so local STT would make our own bias story worse and run slower. The honest position: cloud STT is
 the accuracy/fairness choice, and the UI now says so. Local capability is delivered where it is a
 real win — on-device extraction and audit, Kokoro TTS, browser vision, and a genuine offline LLM
@@ -426,25 +428,22 @@ Deterministic (no LLM) ATS-style audit added to `backend/parsing.py` and stored 
 `columns=2`, the repeated footer, missing sections and missing email; plain-text audit and a full
 `coach.load_resume` round-trip both return the audit in session state; build/lint/metrics unchanged.
 
-### Step 3 — Transcript gate ✅ (2026-10-03)
+### Step 3 — Correctable transcript ✅ (2026-10-03)
 
-A voice answer no longer goes straight from Whisper to scoring. `useInterview` now holds a
-`pending` transcript; `App`'s router parks the transcript (and the camera-setup summary captured
-at the end of speaking) instead of submitting.
+A voice answer no longer disappears into a score. The transcript Aria actually scored is shown
+**on the scorecard**, labelled *mic heard*, and stays correctable.
 
-- **`TranscriptGate`** (in `InterviewView.tsx`): shows "Here's what the mic heard" in an editable
-  textarea, with **Score this answer** / **Discard**. It states plainly that this is the transcript
-  Aria will score and that nothing is scored until confirmed, and flags when the text was edited.
-- While the gate is open the in-app mic and the Space push-to-talk start are disabled, so you
-  cannot record over an unconfirmed answer.
-- Typed answers bypass the gate (the user already wrote them) — but if a gate is open, typing in
-  the composer sends the typed text as the corrected answer.
+- **`AnswerTranscript`** (in `InterviewView.tsx`): the scored answer, plus a quiet
+  *“Mic misheard something? Fix it”* disclosure that opens a textarea seeded with the
+  transcript and a **Re-score this answer** button. Re-scoring is only enabled once the text
+  actually differs from what was scored.
 - The camera-setup window is closed (`endTurn`) the moment the transcript arrives, so the setup
-  metrics describe speaking time, not the editing time at the gate.
+  metrics describe speaking time only.
+- The correction is **not** a new attempt: the same attempt is updated in place, so one question
+  is always one row in the database and one entry in the history.
 
 **Verification**: `npm run build` succeeds; `npm run lint` back to baseline (537/3, all vendored
-`public/wasm`); `face-metrics-test.mjs` 14/14. No backend change was required — the gate reuses
-`POST /api/interview/answer`.
+`public/wasm`); `face-metrics-test.mjs` 14/14. Backend reuses `POST /api/interview/answer`.
 
 ### Step 4 — Evidence-cited feedback ✅ (2026-10-03)
 
@@ -534,7 +533,7 @@ the map, regenerated six gap-driven questions and cleared answers. Build/lint at
 - **UI**: a retry button on each scorecard opens a `RetryCard` (voice or typed, same rubric);
   the result renders as a `RetryDiffBlock` on the original card — score before → after, the
   dimensions that moved, added/dropped words, and the numbers you added, tagged "numbers added".
-- **Fixed a step-7a gap**: the transcript gate's `edited` flag is now actually sent through
+- **Fixed a step-7a gap**: the transcript's `edited` flag is now actually sent through
   (`submitAnswer`/`confirmPending`), so the "corrected" behaviour stat is honest.
 - Verified: helper unit checks (added/dropped words, numbers, dimension deltas); an end-to-end
   retry with the LLM stubbed — first attempt untouched, `attempt=2`, sequence unaffected,
@@ -647,3 +646,79 @@ and confirmed serving `/api/health` (`kokoro_onnx: true`, `groq:qwen/qwen3.8-27b
 `/api/eval/error-bars` (`available`, `ready`, AUC 1.0) and `/api/personas` (all five).
 
 **The plan is now fully implemented** — steps 1–8, all with a published log entry.
+
+### Fix — free-chat history was never recorded (user-reported) ✅ (2026-10-03)
+
+**Reported:** “it doesn't track the conversational history or manage sessions, and export
+doesn't work — the panel shows all zeros.”
+
+**Diagnosed, not guessed:** the local DB was inspected directly — `sessions` and `answers`
+were both empty while `eval_runs` held 82 rows, so saving was *not* silently failing. The
+exact `load_resume` → `score_answer` path was exercised against the real DB and wrote
+correctly (session id, competency row, behaviour counters, export counts).
+
+The actual cause: **free chat was never persisted.** Turns lived only in React state and
+in `brain._history`, so using the default Free chat mode recorded nothing — the panel
+showed zeros and Export produced a valid-but-empty file. That is a genuine gap in step 7a,
+not a display bug.
+
+- `backend/store.py`: new `chat_turns` table (session, prompt, reply) plus
+  `start_chat_session`, `save_chat_turn`, `chat_sessions`, `chat_count`, `chat_turns_for`.
+  `export_json`/`import_json`/`clear` now cover chat as well.
+- **Conversation counter bug caught by test:** deriving the id from `MAX(session)` handed
+  out `1, 1, 1`, so pressing *New session* before the first message collapsed two
+  conversations into one. Fixed with a persisted `store_meta` counter that import also
+  advances, so imported data can never collide with local conversation ids.
+- `backend/server.py`: `/api/chat` records every exchange (best-effort, never fatal);
+  `/api/reset` opens the next conversation and returns its number; `/api/history` returns a
+  `chat` block; new `GET /api/history/chat/{session}` returns one full transcript.
+- `ProgressPanel.tsx`: a **Conversations** section (turn count, session number, preview
+  line), an explicit empty state explaining that chat *and* scored answers both appear
+  there, an Export that refuses to silently write an empty file and instead reports exactly
+  what it exported, and reworded copy for the other empty states.
+
+**Verification**: store unit tests (unique monotonic session ids with zero turns, grouping,
+preview, export → clear → import round-trip, and the no-collision property when importing
+over existing data); a live Uvicorn run where a real `/api/chat` turn moved the count 0 → 1,
+appeared as conversation #1, showed up in `/api/history/export`, and `/api/reset` returned
+`chat_session: 2`. All test rows removed afterwards. Build OK, lint at baseline (537/3),
+face metrics 14/14.
+### Fix — the transcript gate blocked the conversation (2026-10-03)
+
+The step-3 gate did its job too well. After speaking, the app parked the transcript behind
+**Score this answer** / **Discard** and disabled the mic, so the interview ran as a sequence of
+forms instead of a bot conversation — wrong for the demo, and wrong for the product (nobody
+wants to adjudicate a transcript between every sentence).
+
+**Decision (user-approved): make it non-blocking.** Aria scores and answers the moment you stop
+speaking. The transcript stays visible as *mic heard* on the scorecard, and correcting it is an
+explicit, optional **Re-score**.
+
+- **`backend/store.py`**: `update_answer(row_id, record)` — UPDATEs the attempt in place and sets
+  `edited = 1`. No INSERT, so one question stays one row and one history entry.
+- **`backend/coach.py`**: `_state["answer_rows"]` maps question id → first-attempt row id (cleared
+  in `reset`); `_persist_answer` returns the row id; `score_answer(answer, setup, edited,
+  source)`; new `rescore_answer(question_id, answer)` replaces the record in `_state["answers"]`
+  and returns `score_before` / `score_delta` so the movement is the app's own arithmetic.
+- **`backend/server.py`**: `ChatRequest.source`; new `POST /api/interview/rescore` (400 on an
+  unknown question or an empty answer).
+- **`useInterview`**: `PendingAnswer` and the `pending` state are **gone**; `reviewAnswer` /
+  `confirmPending` / `discardPending` are replaced by `rescoreAnswer(questionId, text)`, which
+  patches the answer in place.
+- **`App.tsx`**: the router scores voice answers immediately (or routes to the retry flow when a
+  retry is active); the Space push-to-talk no longer checks a gate.
+- **`InterviewView.tsx`**: `TranscriptGate` deleted; `AnswerTranscript` added inside `ScoreCard`
+  for voice answers — a collapsed disclosure, a textarea, and a **Re-score** button that only
+  enables once the text differs. After a correction the card shows
+  `re-scored after your correction · 62 → 78 (+16)`.
+
+**Verification**: direct coach test on a temp DB (62 → 78; `answers` list stayed length 1; the
+`answers` table stayed 1 row; `edited = 1`; behaviour `corrected: 1`; competency history avg 78.0;
+400s for unknown question and for an empty answer); a `TestClient` round-trip of
+`POST /api/interview/rescore` returning `score 78, score_before 62, score_delta 16, edited true`;
+`npm run build` OK; `npm run lint` at baseline (537/3); `face-metrics-test.mjs` 14/14; backend
+imports clean. Temp DB removed.
+
+**Kept deliberately:** the demo beat. "Aria shows you what the machine actually received" is still
+literally true, and a misheard word can still be fixed in front of a judge — it just no longer
+interrupts the conversation to do it.
