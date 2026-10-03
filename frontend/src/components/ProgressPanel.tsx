@@ -40,11 +40,19 @@ type Behaviour = {
   improved: number
 }
 
+type ChatSession = {
+  session: number
+  turns: number
+  started_at: string
+  preview: string
+}
+
 type HistoryData = {
   sessions: Session[]
   competencies: Competency[]
   weak: string[]
   behaviour: Behaviour
+  chat?: { turns: number; sessions: ChatSession[] }
   db_path: string
 }
 
@@ -100,18 +108,33 @@ export default function ProgressPanel() {
 
   const exportHistory = async () => {
     setBusy(true)
+    setNote(null)
     try {
       const res = await fetch("/api/history/export")
+      if (!res.ok) throw new Error("export failed")
       const blob = await res.json()
+      const total =
+        (blob.sessions?.length ?? 0) +
+        (blob.answers?.length ?? 0) +
+        (blob.chat_turns?.length ?? 0)
+      if (!total) {
+        setNote("Nothing recorded yet, so there is nothing to export")
+        return
+      }
       const url = URL.createObjectURL(
         new Blob([JSON.stringify(blob, null, 2)], { type: "application/json" })
       )
       const a = document.createElement("a")
       a.href = url
       a.download = "aria-history.json"
+      document.body.appendChild(a)
       a.click()
+      a.remove()
       URL.revokeObjectURL(url)
-      setNote("Exported aria-history.json")
+      setNote(
+        `Exported ${blob.sessions?.length ?? 0} practice session(s), ` +
+          `${blob.answers?.length ?? 0} answer(s), ${blob.chat_turns?.length ?? 0} chat turn(s)`
+      )
     } catch {
       setNote("Could not export history")
     } finally {
@@ -163,6 +186,10 @@ export default function ProgressPanel() {
   const behaviour = data?.behaviour ?? EMPTY_BEHAVIOUR
   const competencies = data?.competencies ?? []
   const sessions = data?.sessions ?? []
+  const chatTurns = data?.chat?.turns ?? 0
+  const chatSessions = data?.chat?.sessions ?? []
+  const empty =
+    behaviour.answered === 0 && chatTurns === 0 && sessions.length === 0
 
   const panel = open
     ? createPortal(
@@ -208,6 +235,19 @@ export default function ProgressPanel() {
                 </p>
               </div>
 
+              {empty && (
+                <div className="rounded-xl border border-dashed border-white/10 p-3">
+                  <p className="text-[11px] text-white/55">
+                    Nothing recorded yet.
+                  </p>
+                  <p className="text-[10px] text-white/30 mt-0.5 leading-relaxed">
+                    Every chat turn and every scored answer is logged here.
+                    Send one message in Free chat, or answer a question in
+                    Interview coach, and this fills in automatically.
+                  </p>
+                </div>
+              )}
+
               {/* Stats 4-column grid */}
               <div>
                 <p className="text-[10px] font-medium uppercase tracking-wider text-white/40 mb-1.5">
@@ -238,10 +278,10 @@ export default function ProgressPanel() {
                 {competencies.length === 0 ? (
                   <div className="rounded-xl border border-dashed border-white/10 p-3 text-center">
                     <p className="text-[11px] text-white/45">
-                      No answers recorded yet.
+                      No scored answers yet.
                     </p>
                     <p className="text-[10px] text-white/30 mt-0.5">
-                      Complete an interview practice question to start tracking skills.
+                      Answer a question in Interview coach to start tracking skills.
                     </p>
                   </div>
                 ) : (
@@ -270,6 +310,40 @@ export default function ProgressPanel() {
                   <div className="rounded-lg border border-amber-500/20 bg-amber-500/[0.08] px-2.5 py-1.5 text-[10px] text-amber-200/80">
                     <span className="font-semibold text-amber-300">Focus areas: </span>
                     {data?.weak?.join(", ")} — Aria will prioritize these.
+                  </div>
+                )}
+              </section>
+
+              {/* Conversations (free chat) */}
+              <section className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <p className="text-[10px] font-medium uppercase tracking-wider text-white/40">
+                    Conversations
+                  </p>
+                  <span className="text-[10px] text-white/30">
+                    {chatTurns} turn{chatTurns === 1 ? "" : "s"}
+                  </span>
+                </div>
+                {chatSessions.length === 0 ? (
+                  <p className="text-[11px] text-white/35 italic">
+                    No chats yet — nothing you say is stored on a server.
+                  </p>
+                ) : (
+                  <div className="space-y-1 rounded-xl border border-white/[0.06] bg-white/[0.02] p-2">
+                    {chatSessions.slice(0, 6).map((c) => (
+                      <div
+                        key={c.session}
+                        className="flex items-center justify-between gap-2 rounded-lg px-2 py-1 text-[11px] text-white/60"
+                      >
+                        <span className="min-w-0 truncate text-white/75">
+                          <span className="text-white/35 font-mono text-[10px]">#{c.session} </span>
+                          {c.preview || "(empty)"}
+                        </span>
+                        <span className="shrink-0 text-[10px] text-white/40 font-mono">
+                          {c.turns} turn{c.turns === 1 ? "" : "s"}
+                        </span>
+                      </div>
+                    ))}
                   </div>
                 )}
               </section>

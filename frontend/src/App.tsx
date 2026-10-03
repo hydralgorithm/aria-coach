@@ -175,16 +175,22 @@ export default function App() {
 
   const router = useCallback(
     (text: string) => {
-      // Interview answers stop at the transcript gate: capture the camera-setup
-      // window now, but score only after the user confirms/fixes the transcript.
+      // Interview answers score immediately, so the conversation keeps its
+      // rhythm. The transcript stays editable on the scorecard afterwards, so a
+      // misheard word can still be corrected and the answer re-scored.
       if (mode === "interview") {
-        if (interview.questions.length > 0)
-          interview.reviewAnswer(
-            text,
-            face.endTurn(),
-            interview.retryTarget?.question.id
-          )
-        else void interview.submitAnswer(text, face.endTurn()) // surfaces the error
+        const setup = face.endTurn()
+        if (interview.questions.length > 0) {
+          if (interview.retryTarget)
+            void interview.retryAnswer(
+              text,
+              setup,
+              interview.retryTarget.question.id
+            )
+          else void interview.submitAnswer(text, setup, false, "voice")
+        } else {
+          void interview.submitAnswer(text, setup) // surfaces the error
+        }
       } else handleTranscript(text)
     },
     [mode, interview, handleTranscript, face]
@@ -204,10 +210,9 @@ export default function App() {
   }, [])
 
   const startAnswering = useCallback(() => {
-    if (mode === "interview" && interview.pending) return
     if (mode === "interview") face.beginTurn()
     start()
-  }, [mode, face, start, interview.pending])
+  }, [mode, face, start])
 
   const interruptToListen = useCallback(() => {
     abortRef.current?.abort()
@@ -225,12 +230,11 @@ export default function App() {
       e.preventDefault()
       if (stage === "listening") stop()
       else if (speaking || thinking) interruptToListen()
-      else if (stage === "idle" && !(mode === "interview" && interview.pending))
-        start()
+      else if (stage === "idle") start()
     }
     window.addEventListener("keydown", onKey)
     return () => window.removeEventListener("keydown", onKey)
-  }, [stage, speaking, thinking, start, stop, interruptToListen, mode, interview.pending])
+  }, [stage, speaking, thinking, start, stop, interruptToListen])
 
   const onMicClick = () => {
     if (stage === "listening") stop()
@@ -245,9 +249,7 @@ export default function App() {
     setDraft("")
     stopPlayback()
     if (mode === "interview") {
-      // if the transcript gate is open, typed text becomes the corrected answer
-      if (interview.pending) void interview.confirmPending(text, false)
-      else if (interview.retryTarget)
+      if (interview.retryTarget)
         void interview.retryAnswer(
           text,
           face.endTurn(),
@@ -394,11 +396,9 @@ export default function App() {
             stop={stop}
             setupSummary={interview.setupSummary}
             parse={interview.parse}
-            pending={interview.pending}
-            onConfirmPending={(t, edited) =>
-              void interview.confirmPending(t, edited)
+            onRescore={(questionId, text) =>
+              void interview.rescoreAnswer(questionId, text)
             }
-            onDiscardPending={() => interview.discardPending()}
             retrying={interview.retrying}
             retryTarget={interview.retryTarget}
             retryResults={interview.retryResults}

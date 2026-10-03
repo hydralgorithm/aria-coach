@@ -79,6 +79,13 @@ export type ScoreRecord = {
   attempt?: number
   /** present on retry records */
   diff?: RetryDiff
+  /** "voice" (transcribed, correctable) or "typed" */
+  source?: string
+  /** true once the candidate corrected the transcript and we re-scored */
+  edited?: boolean
+  /** present on a re-score: the score before the correction */
+  score_before?: number
+  score_delta?: number
 }
 
 export type ParseFlag = {
@@ -156,15 +163,6 @@ export type InterviewState = {
   behaviour?: BehaviourStats
 }
 
-export type PendingAnswer = {
-  /** the raw transcript, exactly as the mic heard it */
-  text: string
-  /** camera-setup summary captured when the answer finished */
-  setup: SetupSummary | null
-  /** when set, the transcript is a retry of this question rather than a new answer */
-  retryQuestionId?: number
-}
-
 export type RetryTarget = { question: Question; index: number }
 
 export type BehaviourStats = {
@@ -208,12 +206,6 @@ export function useInterview(
   const [analyzing, setAnalyzing] = useState(false)
   const [scoring, setScoring] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  /**
-   * A transcribed answer waiting at the transcript gate. The user sees and can
-   * edit exactly what the mic heard before it is scored — nothing is scored
-   * until they confirm.
-   */
-  const [pending, setPending] = useState<PendingAnswer | null>(null)
   /** the question currently being retried, if any (out-of-band scoring) */
   const [retryTarget, setRetryTarget] = useState<RetryTarget | null>(null)
   /** retry result per question id, compared against the first attempt */
@@ -359,7 +351,8 @@ export function useInterview(
     async (
       answer: string,
       setup?: SetupSummary | null,
-      edited = false
+      edited = false,
+      source: "voice" | "typed" = "typed"
     ) => {
       setError(null)
       setScoring(true)
@@ -367,7 +360,12 @@ export function useInterview(
         const res = await fetch("/api/interview/answer", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ message: answer, setup: setup ?? null, edited }),
+          body: JSON.stringify({
+            message: answer,
+            setup: setup ?? null,
+            edited,
+            source,
+          }),
         })
         const data = await res.json()
         if (!res.ok) throw new Error(data.detail || `http ${res.status}`)
@@ -431,35 +429,43 @@ export function useInterview(
   )
 
   /** Park a transcript at the gate instead of scoring it immediately. */
-  const reviewAnswer = useCallback(
-    (text: string, setup?: SetupSummary | null, retryQuestionId?: number) => {
+  const rescoreAnswer = useCallback(
+    async (questionId: number, text: string) => {
       setError(null)
-      setPending({ text: text.trim(), setup: setup ?? null, retryQuestionId })
-    },
-    []
-  )
-
-  /** Send the (possibly edited) transcript through to scoring. */
-  const confirmPending = useCallback(
-    async (text: string, edited = false) => {
-      const setup = pending?.setup ?? null
-      const retryQuestionId = pending?.retryQuestionId
-      setPending(null)
-      if (retryQuestionId !== undefined) {
-        await retryAnswer(text.trim(), setup, retryQuestionId, edited)
-      } else {
-        await submitAnswer(text.trim(), setup, edited)
+      setScoring(true)
+      try {
+        const res = await fetch("/api/interview/rescore", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ message: text.trim(), question_id: questionId }),
+        })
+        const data = await res.json()
+        if (!res.ok) throw new Error(data.detail || `http ${res.status}`)
+        const { state: _s, next_question: _n, audio_url: _a, ...patch } = data
+        setState((prev) => {
+          const index = prev.answers.findIndex((a) => a.question_id === questionId)
+          if (index < 0) return prev
+          const answers = [...prev.answers]
+          answers[index] = { ...answers[index], ...patch }
+          return {
+            ...prev,
+            answers,
+            behaviour: data.state?.behaviour ?? prev.behaviour,
+          }
+        })
+        if (data.audio_url) void playAudio(data.audio_url)
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "re-scoring failed")
+      } finally {
+        setScoring(false)
       }
     },
-    [pending, submitAnswer, retryAnswer]
+    [playAudio]
   )
-
-  const discardPending = useCallback(() => setPending(null), [])
 
   /** Begin retrying a question already answered this session. */
   const startRetry = useCallback((question: Question, index: number) => {
     setError(null)
-    setPending(null)
     setRetryTarget({ question, index })
   }, [])
 
@@ -468,7 +474,6 @@ export function useInterview(
   const reset = useCallback(async () => {
     setState(EMPTY)
     setError(null)
-    setPending(null)
     setRetryTarget(null)
     setRetryResults({})
     await fetch("/api/interview/reset", { method: "POST" }).catch(() => {})
@@ -482,7 +487,6 @@ export function useInterview(
     analyzing,
     scoring,
     error,
-    pending,
     retryTarget,
     retryResults,
     retrying,
@@ -491,9 +495,7 @@ export function useInterview(
     applyJd,
     submitAnswer,
     retryAnswer,
-    reviewAnswer,
-    confirmPending,
-    discardPending,
+    rescoreAnswer,
     startRetry,
     cancelRetry,
     reset,

@@ -38,7 +38,6 @@ import type { ChatStage } from "@/hooks/useVoice"
 import type {
   SetupSummaryReport,
   ParseAudit,
-  PendingAnswer,
   RetryTarget,
   RetryDiff,
   BehaviourStats,
@@ -129,9 +128,7 @@ type Props = {
   speaking: boolean
   start: () => void
   stop: () => void
-  pending: PendingAnswer | null
-  onConfirmPending: (text: string, edited: boolean) => void
-  onDiscardPending: () => void
+  onRescore?: (questionId: number, text: string) => void
   retrying: boolean
   retryTarget: RetryTarget | null
   retryResults: Record<number, ScoreRecord>
@@ -172,9 +169,7 @@ export default function InterviewView({
   speaking,
   start,
   stop,
-  pending,
-  onConfirmPending,
-  onDiscardPending,
+  onRescore,
   retrying,
   retryTarget,
   retryResults,
@@ -515,16 +510,6 @@ export default function InterviewView({
         )}
       </div>
 
-      {/* transcript gate — what the mic heard, editable, before any score */}
-      {pending && (
-        <TranscriptGate
-          key={pending.text}
-          pending={pending}
-          onConfirm={onConfirmPending}
-          onDiscard={onDiscardPending}
-        />
-      )}
-
       {/* retry the same question, out-of-band from the question sequence */}
       {retryTarget && (
         <RetryCard
@@ -608,7 +593,7 @@ export default function InterviewView({
                 <div className="mt-5 flex items-center gap-3">
                   <button
                     onClick={listening ? stop : start}
-                    disabled={scoring || speaking || !!pending}
+                    disabled={scoring || speaking}
                     className={`relative flex size-12 shrink-0 items-center justify-center rounded-2xl transition-all duration-200 disabled:pointer-events-none disabled:opacity-40 ${
                       listening
                         ? "bg-gradient-to-br from-rose-500 to-red-500 shadow-lg shadow-red-500/40"
@@ -759,57 +744,11 @@ export default function InterviewView({
             retrying={retrying}
             retryTarget={retryTarget}
             onRetry={onRetry}
+            onRescore={onRescore}
+            rescoring={scoring}
           />
         ))}
     </div>
-  )
-}
-
-function TranscriptGate({
-  pending,
-  onConfirm,
-  onDiscard,
-}: {
-  pending: PendingAnswer
-  onConfirm: (text: string, edited: boolean) => void
-  onDiscard: () => void
-}) {
-  // keyed by the transcript in the parent, so a new answer remounts this box
-  const [text, setText] = useState(pending.text)
-  const edited = text.trim() !== pending.text.trim()
-
-  return (
-    <Card className="border-amber-300/30 bg-amber-300/[0.06] p-4">
-      <div className="flex items-center gap-2">
-        <Mic className="size-4 text-amber-300" />
-        <p className="text-sm font-medium text-white/90">
-          Here's what the mic heard
-        </p>
-      </div>
-      <p className="mt-1 text-xs leading-relaxed text-white/50">
-        This is the transcript Aria will score — not what you meant. Fix any
-        misheard words, then continue. Nothing is scored until you confirm.
-      </p>
-      <textarea
-        value={text}
-        onChange={(e) => setText(e.target.value)}
-        rows={4}
-        className="mt-2 w-full resize-y rounded-xl border border-white/12 bg-black/30 px-3 py-2 text-sm leading-relaxed text-white/90 outline-none focus:border-amber-300/40"
-      />
-      <div className="mt-2 flex flex-wrap items-center gap-2">
-        <Button onClick={() => onConfirm(text, edited)} disabled={!text.trim()}>
-          <CheckCircle2 /> Score this answer
-        </Button>
-        <Button variant="ghost" onClick={onDiscard}>
-          Discard
-        </Button>
-        {edited && (
-          <span className="text-[10px] text-amber-200/80">
-            edited — the score will reflect your corrected words
-          </span>
-        )}
-      </div>
-    </Card>
   )
 }
 
@@ -1198,6 +1137,121 @@ function ParseAuditPanel({
   )
 }
 
+/**
+ * What the mic heard — still correctable after the fact.
+ *
+ * Aria scores the answer the moment it lands, so the interview never stalls on
+ * a confirm step. If a word was misheard, fix it here and re-score: the same
+ * attempt is updated in place (never duplicated) and Aria shows the movement,
+ * because "here is what the machine actually received" is the whole point.
+ */
+function AnswerTranscript({
+  record,
+  onRescore,
+  rescoring,
+}: {
+  record: ScoreRecord
+  onRescore?: (questionId: number, text: string) => void
+  rescoring?: boolean
+}) {
+  const [open, setOpen] = useState(false)
+  // remounted by ScoreCard whenever the scored answer changes, so the draft is
+  // always the transcript Aria actually scored
+  const [draft, setDraft] = useState(record.answer)
+
+  const questionId = record.question_id
+  const correctable =
+    record.source === "voice" && questionId !== undefined && !!onRescore
+  const dirty = draft.trim() !== record.answer.trim()
+  const delta = record.score_delta ?? 0
+
+  return (
+    <div className="mt-3 rounded-xl bg-white/[0.04] px-3 py-2">
+      <p className="text-xs text-white/50">
+        <span className="text-white/40">
+          {record.source === "voice" ? "mic heard: " : "you typed: "}
+        </span>
+        {record.answer}
+      </p>
+
+      {correctable && (
+        <>
+          {record.edited && (
+            <p className="mt-2 flex flex-wrap items-center gap-1.5 text-[10px] text-white/45">
+              <RotateCcw className="size-3 text-amber-300" />
+              re-scored after your correction
+              {typeof record.score_before === "number" && (
+                <span className="text-white/60">
+                  {record.score_before} → {record.score}
+                  {delta !== 0 && (
+                    <span
+                      className={
+                        delta > 0 ? " text-mint-400" : " text-red-300"
+                      }
+                    >
+                      {" "}
+                      ({delta > 0 ? "+" : ""}
+                      {delta})
+                    </span>
+                  )}
+                </span>
+              )}
+            </p>
+          )}
+
+          {!open ? (
+            <button
+              onClick={() => setOpen(true)}
+              className="mt-1.5 text-[11px] text-iris-300 hover:text-iris-200"
+            >
+              Mic misheard something? Fix it
+            </button>
+          ) : (
+            <div className="mt-2">
+              <textarea
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                rows={3}
+                aria-label="What the mic heard — edit to re-score"
+                className="w-full resize-y rounded-lg border border-white/12 bg-black/30 px-2.5 py-1.5 text-xs leading-relaxed text-white/90 outline-none focus:border-iris-400/40"
+              />
+              <div className="mt-1.5 flex flex-wrap items-center gap-2">
+                <Button
+                  onClick={() => onRescore?.(questionId, draft.trim())}
+                  disabled={rescoring || !draft.trim() || !dirty}
+                  className="h-8 px-3 text-xs"
+                >
+                  {rescoring ? (
+                    <Loader2 className="animate-spin" />
+                  ) : (
+                    <RotateCcw />
+                  )}
+                  {rescoring ? "Re-scoring…" : "Re-score this answer"}
+                </Button>
+                <Button
+                  variant="ghost"
+                  onClick={() => {
+                    setDraft(record.answer)
+                    setOpen(false)
+                  }}
+                  className="h-8 px-2 text-xs"
+                >
+                  Cancel
+                </Button>
+                {!dirty && !rescoring && (
+                  <span className="text-[10px] text-white/40">
+                    edit a word to enable re-scoring
+                  </span>
+                )}
+              </div>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  )
+}
+
 function ScoreCard({
   record,
   question,
@@ -1206,6 +1260,8 @@ function ScoreCard({
   retrying,
   retryTarget,
   onRetry,
+  onRescore,
+  rescoring,
 }: {
   record: ScoreRecord
   question?: Question
@@ -1214,6 +1270,8 @@ function ScoreCard({
   retrying?: boolean
   retryTarget?: RetryTarget | null
   onRetry?: (question: Question, index: number) => void
+  onRescore?: (questionId: number, text: string) => void
+  rescoring?: boolean
 }) {
   const [showBreakdown, setShowBreakdown] = useState(false)
   const canRetry =
@@ -1289,10 +1347,12 @@ function ScoreCard({
         </div>
       )}
 
-      <p className="mt-3 rounded-xl bg-white/[0.04] px-3 py-2 text-xs text-white/50">
-        <span className="text-white/40">you said: </span>
-        {record.answer}
-      </p>
+      <AnswerTranscript
+        key={`${record.question_id ?? index ?? 0}-${record.answer}`}
+        record={record}
+        onRescore={onRescore}
+        rescoring={rescoring}
+      />
 
       {record.strengths.length > 0 && (
         <ul className="mt-3 space-y-2">
