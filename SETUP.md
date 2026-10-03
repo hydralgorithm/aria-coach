@@ -1,75 +1,75 @@
 # Aria — Setup Guide
 
-**Audience:** an AI agent (or human) setting this project up from a fresh clone.
-Follow the steps **in order**. Every step has a **Verify** command and the exact
-expected output. **If a Verify fails, stop and use Troubleshooting — do not
-continue to the next step.**
+**Audience:** a human or an AI agent setting this project up from a fresh clone.
 
-Total time: ~5–10 minutes.
+Follow the steps **in order**. Every step has a **Verify** command and the expected
+output. **If a Verify fails, stop and use Troubleshooting — do not continue.**
+
+Time: ~5–10 minutes on a normal connection (plus ~353 MB of model download).
+Disk: ~2 GB (mostly the Kokoro model + Python/Node caches).
 
 ---
 
 ## 0. What this project is
 
-Aria is a **voice-based interview practice coach**. You talk to it; it listens,
-answers out loud, and scores your interview answers against a real HR scorecard.
+Aria is a **voice-first interview practice coach**. You talk to it; it shows you the
+transcript it heard, scores your answers on a real HR scorecard, cites the exact words
+behind every observation, and publishes how unreliable its own score is.
 
 | Part | Tech | Runs on | Cost |
 |---|---|---|---|
-| Brain (LLM) | `qwen/qwen3.8-27b` (or `openai/gpt-oss-120b`) via Groq | Groq cloud | free tier |
-| Speech-to-text | `whisper-large-v3-turbo` via Groq | Groq cloud | same free key |
-| Text-to-speech | **Kokoro ONNX** (`kokoro-v1.0.onnx`) | **locally** | free, offline, CPU |
+| Brain (LLM) | `qwen/qwen3.8-27b` via Groq, local Ollama fallback | cloud (fallback local) | free tier |
+| Speech-to-text | `whisper-large-v3-turbo` via Groq | cloud | same free key |
+| Text-to-speech | Kokoro ONNX | **locally** | free, offline, CPU |
+| Camera check | MediaPipe Face Landmarker | **in-browser** | free, offline |
 
-**The only local model is Kokoro ONNX** (text-to-speech, ~325 MB ONNX model + 28 MB voice embeddings).
-The LLM and STT are Groq cloud calls, so a **Groq API key is required** — you cannot run the LLM offline.
-
-Architecture:
-
-```
-Chrome ──mic (MediaRecorder webm/opus)──▶ FastAPI /api/transcribe
-        ──text─────────────────────────▶ FastAPI /api/chat
-                                            ├─▶ Groq Qwen 27B / GPT-OSS 120B (LLM)
-                                            └─▶ Kokoro ONNX local (TTS) → wav (24kHz)
-Chrome ◀──<audio> playback───────────────────┘
-```
+**Required:** a Groq API key (LLM + STT).
+**Manual download:** the two Kokoro files (~353 MB). Everything else — including the
+camera model — ships with the repository.
 
 ---
 
 ## 1. Prerequisites
 
-You need **all three** of these before starting:
-
 | Tool | Version | Why |
 |---|---|---|
-| Python | **3.12.x recommended** | Clean wheels for ONNX runtime and audio tools |
-| Node.js | 20+ (22/24 fine) | Builds the React frontend |
-| ffmpeg | any recent | Decodes browser mic audio in `backend/server.py` |
+| Python | **3.12.x** (required) | clean wheels for ONNX Runtime and audio tooling |
+| Node.js | 20+ (22/24 fine) | builds the React frontend |
+| ffmpeg | any recent | decodes browser mic audio in `backend/server.py` |
 
-### Windows
+### Install ffmpeg
 
-> **Use winget for ffmpeg.** Winget installs per-user and does not need administrator rights.
-
-```powershell
+```bash
+# Windows (per-user, no admin needed)
 winget install --id Gyan.FFmpeg -e --accept-source-agreements --accept-package-agreements
-```
 
-### macOS
-
-```bash
+# macOS
 brew install ffmpeg
+
+# Debian / Ubuntu
+sudo apt update && sudo apt install -y ffmpeg python3.12 python3.12-venv build-essential
 ```
 
-### Linux (Debian/Ubuntu)
+### (Optional) Tesseract — only needed for scanned/image-only résumé PDFs
 
 ```bash
-sudo apt update && sudo apt install -y ffmpeg python3.12 python3.12-venv build-essential
+winget install --id UB-Mannheim.TesseractOCR -e     # Windows
+brew install tesseract                              # macOS
+sudo apt install -y tesseract-ocr                   # Debian / Ubuntu
+```
+
+### (Optional) Ollama — offline fallback and the independent validation judge
+
+```bash
+# install from https://ollama.com, then:
+ollama pull llama3.2:3b
 ```
 
 **Verify (all platforms):**
 
 ```bash
-ffmpeg -version       # expect: ffmpeg version 6.x / 7.x / 9.x
-node --version        # expect: v20.x or higher
+ffmpeg -version      # any recent version
+node --version       # v20.x or higher
 ```
 
 ---
@@ -77,19 +77,21 @@ node --version        # expect: v20.x or higher
 ## 2. Get a Groq API key (free, no credit card)
 
 1. Sign up at <https://console.groq.com>.
-2. Dashboard → **API Keys** → **Create Key**.
+2. **API Keys → Create Key**.
 3. Copy it (starts with `gsk_`).
 
-Paste it into `.env` (see Step 5).
+You will paste it into `.env` in step 5.
 
 ---
 
-## 3. Create the virtual environment
-
-From the repository root:
+## 3. Create the virtual environment (Python 3.12)
 
 ```bash
-python3.12 -m venv .venv          # Windows: py -3.12 -m venv .venv
+# macOS / Linux
+python3.12 -m venv .venv
+
+# Windows
+py -3.12 -m venv .venv
 ```
 
 Activate it:
@@ -100,10 +102,8 @@ Activate it:
 | Windows cmd.exe | `.venv\Scripts\activate.bat` |
 | macOS / Linux bash | `source .venv/bin/activate` |
 
-> **Windows PowerShell Execution Policy Note:** If PowerShell shows:
-> *"Do you want to run software from this untrusted publisher? ... Activate.ps1"*,
-> press **`A`** (Always run), or run:
-> `Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser`
+> **PowerShell** may block activation. Press **`A`** (Always run), or run
+> `Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser`.
 
 **Verify:**
 
@@ -111,72 +111,77 @@ Activate it:
 python --version        # MUST print Python 3.12.x
 ```
 
+> **Use this interpreter for every later step.** If you have several Pythons
+> installed, calling the venv binary directly avoids picking up the wrong one:
+> `.venv/Scripts/python.exe` (Windows) or `.venv/bin/python` (macOS/Linux).
+
 ---
 
-## 4. Install dependencies (Kokoro ONNX)
-
-Unlike earlier versions that required heavy PyTorch CUDA/CPU builds and suffered from `numpy 2.x` / `scipy` conflicts, Aria now uses **Kokoro ONNX**:
+## 4. Install backend dependencies
 
 ```bash
 pip install -r requirements.txt
 ```
 
-This installs `kokoro-onnx`, `onnxruntime`, `groq`, `sounddevice`, `soundfile`,
-`fastapi`, `uvicorn`, `pymupdf`, `pypdf`, `pytesseract` and dependencies.
+That covers Groq, python-dotenv, Kokoro ONNX + ONNX Runtime, sounddevice/soundfile,
+NumPy, FastAPI/Uvicorn/python-multipart/pydantic, PyMuPDF, Pillow and pytesseract.
+There is deliberately no SciPy/pandas/sklearn — the validation statistics are plain
+NumPy (see `backend/stats.py`).
 
 **Verify:**
 
 ```bash
-python -c "import kokoro_onnx, groq, fastapi, soundfile; print('deps OK')"
+python -c "import kokoro_onnx, groq, fastapi, soundfile, numpy, pymupdf, PIL, pytesseract; print('deps OK')"
 ```
 
 ---
 
-## 5. Configure the environment (`.env`)
+## 5. Configure `.env`
 
 ```bash
 cp .env.example .env          # Windows: copy .env.example .env
 ```
 
-Open `.env` and configure your settings:
-
 ```env
 GROQ_API_KEY=gsk_your_actual_key_here
-GROQ_MODEL=qwen/qwen3.8-27b
+# Optional overrides
+# GROQ_MODEL=qwen/qwen3.8-27b
+# OLLAMA_HOST=http://127.0.0.1:11434
+# OLLAMA_MODEL=llama3.2:3b
 ```
 
-> **Note on models:** `qwen/qwen3.8-27b` is recommended for sub-second conversational latency. If your Groq account has `openai/gpt-oss-120b`, you can set `GROQ_MODEL=openai/gpt-oss-120b`.
+If your Groq account doesn't offer `qwen/qwen3.8-27b`, set `GROQ_MODEL` to a chat model
+it does offer (see <https://console.groq.com/docs/models>).
 
 **Verify:**
 
 ```bash
-python -c "from dotenv import load_dotenv; import os; load_dotenv(); print('Key valid:', os.getenv('GROQ_API_KEY','').startswith('gsk_'))"
+python -c "from dotenv import load_dotenv; import os; load_dotenv(); print('key present:', os.getenv('GROQ_API_KEY','').startswith('gsk_'))"
 ```
 
 ---
 
-## 6. Download Kokoro ONNX model weights
+## 6. Download the Kokoro TTS weights (the only manual download)
 
-The ONNX model and voice embeddings live in `models/`:
+`models/` is gitignored, so these two files must be fetched once:
+
 - `models/kokoro-v1.0.onnx` (~325 MB)
 - `models/voices-v1.0.bin` (~28 MB)
 
-Run this one-liner to download them if not already present:
-
 ```bash
-python -c "
+python - <<'EOF'
 import urllib.request, os
 os.makedirs('models', exist_ok=True)
 files = [
-    ('https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/voices-v1.0.bin', 'models/voices-v1.0.bin'),
-    ('https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/kokoro-v1.0.onnx', 'models/kokoro-v1.0.onnx')
+    ('https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/kokoro-v1.0.onnx', 'models/kokoro-v1.0.onnx'),
+    ('https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/voices-v1.0.bin',   'models/voices-v1.0.bin'),
 ]
 for url, dest in files:
-    if not os.path.exists(dest) or os.path.getsize(dest) < 1000000:
+    if not os.path.exists(dest) or os.path.getsize(dest) < 1_000_000:
         print('Downloading', url, '->', dest)
         urllib.request.urlretrieve(url, dest)
 print('Models ready!')
-"
+EOF
 ```
 
 **Verify:**
@@ -185,17 +190,20 @@ print('Models ready!')
 python -c "
 from backend import tts
 samples, sr = tts.generate('Aria is ready. Let us practice.')
-print(f'KOKORO ONNX OK: {len(samples)/sr:.2f}s of audio generated at {sr} Hz')
+print(f'Kokoro OK: {len(samples)/sr:.2f}s of audio at {sr} Hz')
 "
 ```
 
-**Expected output:** `KOKORO ONNX OK: ~2.5s of audio generated at 24000 Hz`.
+**Expected:** `Kokoro OK: ~2s of audio at 24000 Hz` (exact length varies with the sentence).
+
+> **Nothing to download for the camera check.** `frontend/public/models/face_landmarker.task`
+> and the MediaPipe WASM runtime are committed to the repository.
 
 ---
 
 ## 7. Build the frontend
 
-The backend serves the React app as static files from `frontend/dist`:
+The backend serves the built React app from `frontend/dist`:
 
 ```bash
 cd frontend
@@ -207,67 +215,126 @@ cd ..
 **Verify:**
 
 ```bash
-ls frontend/dist/index.html     # must exist
+ls frontend/dist/index.html         # must exist
+ls frontend/public/models/face_landmarker.task   # shipped with the repo
 ```
 
 ---
 
 ## 8. Start the backend
 
-### Windows (One-Click)
-Double-click **`START.bat`** in the repository root.
-`START.bat` automatically configures Python 3.12 DLL paths, mounts virtual environment packages, and starts uvicorn with live reload.
+**Windows:** double-click **`START.bat`** (it pins the Python 3.12 DLL paths and starts
+Uvicorn with reload).
 
-### Terminal (Cross-Platform)
-From the project root:
+**Any platform:**
 
 ```bash
 python -m uvicorn backend.server:app --host 127.0.0.1 --port 8000 --reload
 ```
 
-Open **<http://localhost:8000>** in your browser.
+Open **<http://127.0.0.1:8000>**.
 
-- Tap the mic and speak, or type your message.
-- Choose from 5 interviewer personas with tailored Kokoro voices.
-- Upload your resume (PDF/TXT) for tailored questions and rubric scoring.
+**Verify** (works on every platform, no `curl` needed):
 
----
+```bash
+python -c "import urllib.request, json; print(json.dumps(json.load(urllib.request.urlopen('http://127.0.0.1:8000/api/health')), indent=2)[:400])"
+```
 
-## 9. Interviewer personalities & voices
-
-All personas use high-fidelity, local Kokoro voices:
-
-| Mode | Personality | Voice | Style |
-|---|---|---|---|
-| **The Structured Panel** | Balanced competency-based interview | `af_heart` | Neutral, professional, competent |
-| **The Bar-Raiser** | High-bar, evidence-obsessed | `am_michael` | Deep, challenging, analytical |
-| **The Talent Coach** | Supportive coaching round | `af_bella` | Warm, encouraging, patient |
-| **The Phone Screener** | Fast first-round screen | `am_adam` | Energetic, direct, brisk |
-| **The Stress Interviewer** *(advanced)* | Adversarial, tests composure | `bm_george` | Sharp, British inflection |
+**Expected:** `"ok": true`, a `kokoro_onnx: true`, and an `engines` block naming the
+primary LLM, the local fallback, the STT model, and whether TTS/vision are local.
 
 ---
 
-## 10. Troubleshooting
+## 9. Optional: publish the validation numbers
 
-### `500 Internal Server Error` on `/api/chat`
-1. Check `/api/health` in your browser (<http://localhost:8000/api/health>). It reports:
-   - `ok`: `true`
-   - `kokoro_onnx`: `true`
-   - `model`: your active Groq model
-2. If `groq.NotFoundError` occurs, the model in `GROQ_MODEL` is not available on your Groq key. Set `GROQ_MODEL=qwen/qwen3.8-27b` in `.env`.
-3. Check that `models/kokoro-v1.0.onnx` and `models/voices-v1.0.bin` exist and are non-empty.
+The repo already ships a published report at `docs/eval/error-bars.json`, shown in the
+header's **Published validation** panel. To regenerate it from your own models:
 
-### Windows DLL Conflict (`_ssl` or `_ctypes` error)
-If you have multiple Python versions installed (e.g. Python 3.14 alongside 3.12), Windows may load conflicting DLLs from PATH.
-- Run the server using **`START.bat`** which sets Python 3.12 DLL directory precedence.
+```bash
+python scripts/errorbars.py status              # what data exists
+python scripts/errorbars.py score --repeats 3   # Aria scores the 24-answer benchmark 3x
+python scripts/errorbars.py judge               # independent local model scores it (needs Ollama)
+python scripts/errorbars.py analyze             # writes docs/eval/error-bars.json
+```
 
-### Missing ffmpeg
-If mic transcription returns `ffmpeg not found`:
-- Run `winget install --id Gyan.FFmpeg -e` and open a fresh terminal so the updated `PATH` takes effect.
+`score` is resumable — re-running it skips answers it has already scored, so it is safe
+to invoke repeatedly. No human rating is involved at any point.
 
-### Offline / no Groq key (local fallback)
-Aria uses Groq by default. When the cloud is unreachable it falls back to a local Ollama model if one is running:
-- Install Ollama (<https://ollama.com>) and pull a model: `ollama pull llama3.2:3b`.
-- Optionally set `OLLAMA_MODEL` / `OLLAMA_HOST` in `.env`.
-- Check `/api/health` → `engines.llm_fallback`; the header's **Where this runs** panel shows the live split.
-- Text-to-speech (Kokoro) and the camera check already run locally; speech-to-text still needs the cloud.
+---
+
+## 10. Verify the whole project
+
+```bash
+cd frontend
+npm run build                        # must succeed
+npm run lint                         # baseline: 537 warnings / 3 errors, all vendored public/wasm
+node scripts/face-metrics-test.mjs   # 14 checks, must print "All delivery-metric checks passed."
+cd ..
+
+python -c "from backend import coach, server, store, stats, features, errorbars; print('imports OK')"
+python scripts/errorbars.py analyze  # rebuilds the report from whatever data exists
+```
+
+---
+
+## 11. Feature tour (what to try first)
+
+1. **Interview coach → upload a résumé** → the ATS parse audit panel shows what the
+   parser actually read, plus flags for two-column layouts, tables, missing sections.
+2. **Paste a JD** → the Requirement × Evidence × Confidence map builds, and the questions
+   are generated from the gaps.
+3. **Answer out loud** → the transcript gate appears. Edit a misheard word, confirm, and
+   watch the score reflect your corrected words.
+4. **Retry** any answered question → side-by-side diff with the numbers you added.
+5. **Your progress** (history icon) → behaviour stats and per-competency trends, stored
+   only on this device.
+6. **Published validation** (flask icon) → the error bars.
+7. **Where this runs** (info icon) → the honest local/cloud split.
+
+Interviewer personas (Kokoro voices, local):
+
+| Persona | Style | Voice |
+|---|---|---|
+| **The Structured Panel** | balanced competency-based | `af_heart` |
+| **The Bar-Raiser** | high-bar, evidence-obsessed | `am_michael` |
+| **The Talent Coach** | supportive coaching round | `af_bella` |
+| **The Phone Screener** | fast first-round screen | `am_adam` |
+| **The Stress Interviewer** *(advanced)* | adversarial, tests composure | `bm_george` |
+
+---
+
+## 12. Troubleshooting
+
+**`/api/chat` returns 500, or `groq.NotFoundError`**
+The model in `GROQ_MODEL` isn't available on your key. Set a model your account can
+reach (see step 5), restart, and re-check `/api/health`.
+
+**Windows DLL conflict (`_ssl` / `_ctypes` errors)**
+Multiple Python installs (e.g. 3.14 alongside 3.12) can load conflicting DLLs. Run via
+**`START.bat`**, or always use the venv interpreter directly.
+
+**`ffmpeg` not found**
+Install it (step 1) **and open a new terminal** — terminals that were already open keep
+the old `PATH`. If it is installed but still not found, set `FFMPEG_BINARY` to the full
+path of `ffmpeg.exe`.
+
+**"camera permission denied" / camera unavailable**
+Grant camera permission and confirm the browser can open the selected device. The camera
+check is optional; scoring works without it.
+
+**Published validation panel is empty**
+No report on disk yet, or the report was built with no data. Run
+`python scripts/errorbars.py analyze` (step 9). If it prints `ready=False`, you need
+`score` runs first.
+
+**Local fallback says "no local Ollama is running"**
+Start Ollama and `ollama pull llama3.2:3b`, or ignore it — the cloud path is the default.
+
+**Scanned PDF returns "could not read enough text"**
+Install the Tesseract **binary** (step 1); the `pytesseract` Python package alone is not
+enough.
+
+**`npm run build` fails with "Cannot find name 'X'"**
+A component import was lost in an edit. Every component used in `App.tsx` needs an
+import at the top (e.g. `CameraSetup`, `ProgressPanel`, `ValidationPanel`,
+`WhereItRuns`).

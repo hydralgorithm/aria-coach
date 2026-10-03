@@ -171,9 +171,14 @@ def reliability(runs: list[dict]) -> dict:
     }
 
 
-def _verdict(rho: float, expected: str, n: int) -> str:
+def _verdict(rho: float, expected: str, n: int, discriminative: bool) -> str:
     if n < 6 or rho is None or (isinstance(rho, float) and math.isnan(rho)):
         return "not enough data"
+    if not discriminative:
+        # the proxy cannot separate the benchmark at all, so a correlation
+        # against it says nothing about Aria. Reporting "contradicted" here
+        # would blame the scorer for a broken yardstick.
+        return "proxy not discriminative"
     directed = rho if expected == "+" else -rho
     if directed >= 0.6:
         return "supported"
@@ -184,33 +189,101 @@ def _verdict(rho: float, expected: str, n: int) -> str:
     return "not supported"
 
 
-def convergent(aria_runs: list[dict]) -> list[dict]:
-    """Objective text features vs Aria's dimension means (Spearman)."""
+def discrimination(aria_runs: list[dict]) -> dict:
+    """Can Aria tell the benchmark's weak answers from its strong ones?
+
+    The benchmark is built with a known split: each of the 12 questions has one
+    deliberately vague answer and one deliberately strong one. Separating them
+    is the headline validity claim, reported as AUC (P(a strong answer outranks
+    a weak one)) rather than a correlation.
+    """
     means = _means(aria_runs)
-    eval_set = load_eval_set()
-    feats = {int(a["id"]): feature_lib.extract(a["answer"]) for a in eval_set["answers"]}
+    answers = load_eval_set()["answers"]
+
+    def scores(quality: str, key: str | None = None) -> list[float]:
+        out = []
+        for a in answers:
+            aid = int(a["id"])
+            if a.get("quality") != quality or aid not in means:
+                continue
+            out.append(
+                means[aid]["score"] if key is None else means[aid]["breakdown"][key]
+            )
+        return out
+
+    strong, weak = scores("strong"), scores("weak")
+    per_dimension = []
+    for dimension in _dimensions():
+        s, w = scores("strong", dimension), scores("weak", dimension)
+        value = stats.auc(s, w)
+        per_dimension.append(
+            {
+                "key": dimension,
+                "max": _dimensions()[dimension],
+                "auc": None if math.isnan(value) else round(value, 3),
+                "interpretation": stats.interpret_auc(value),
+            }
+        )
+    total = stats.auc(strong, weak)
+    return {
+        "n_strong": len(strong),
+        "n_weak": len(weak),
+        "mean_strong": (sum(strong) / len(strong)) if strong else None,
+        "mean_weak": (sum(weak) / len(weak)) if weak else None,
+        "min_strong": min(strong) if strong else None,
+        "max_weak": max(weak) if weak else None,
+        "auc": None if math.isnan(total) else round(total, 3),
+        "interpretation": stats.interpret_auc(total),
+        "complete_separation": bool(strong and weak and min(strong) > max(weak)),
+        "weak_at_or_above_best_strong": (
+            sum(1 for w in weak if w >= min(strong)) if strong and weak else 0
+        ),
+        "per_dimension": per_dimension,
+    }
+
+
+def convergent(aria_runs: list[dict]) -> list[dict]:
+    """Objective text features vs Aria's dimension means (Spearman).
+
+    A correlation is only meaningful if the proxy feature can actually tell the
+    benchmark's weak answers from its strong ones. Each feature is therefore
+    checked for discriminativeness first; a feature that cannot separate the
+    benchmark is reported as such instead of being used to indict the scorer.
+    """
+    means = _means(aria_runs)
+    answers = load_eval_set()["answers"]
+    by_id = {int(a["id"]): a for a in answers}
+    feats = {aid: feature_lib.extract(a["answer"]) for aid, a in by_id.items()}
+    strong = [aid for aid, a in by_id.items() if a.get("quality") == "strong" and aid in means]
+    weak = [aid for aid, a in by_id.items() if a.get("quality") == "weak" and aid in means]
+
     results = []
     for hypothesis in feature_lib.HYPOTHESES:
+        feature = hypothesis["feature"]
+        dimension = hypothesis["dimension"]
         pairs = [
-            (feats[aid][hypothesis["feature"]], means[aid]["breakdown"][hypothesis["dimension"]])
+            (feats[aid][feature], means[aid]["breakdown"][dimension])
             for aid in means
             if aid in feats
         ]
-        xs = [p[0] for p in pairs]
-        ys = [p[1] for p in pairs]
-        rho = stats.spearman_rho(xs, ys)
+        rho = stats.spearman_rho([p[0] for p in pairs], [p[1] for p in pairs])
+        proxy_auc = stats.auc(
+            [feats[aid][feature] for aid in strong],
+            [feats[aid][feature] for aid in weak],
+        )
+        discriminative = (not math.isnan(proxy_auc)) and abs(proxy_auc - 0.5) >= 0.2
         results.append(
             {
-                "dimension": hypothesis["dimension"],
-                "feature": hypothesis["feature"],
-                "feature_label": feature_lib.FEATURE_LABELS.get(
-                    hypothesis["feature"], hypothesis["feature"]
-                ),
+                "dimension": dimension,
+                "feature": feature,
+                "feature_label": feature_lib.FEATURE_LABELS.get(feature, feature),
                 "expected": hypothesis["expected"],
                 "label": hypothesis["label"],
                 "rho": None if (rho is None or math.isnan(rho)) else round(rho, 3),
+                "proxy_auc": None if math.isnan(proxy_auc) else round(proxy_auc, 3),
+                "proxy_discriminative": discriminative,
                 "n": len(pairs),
-                "verdict": _verdict(rho, hypothesis["expected"], len(pairs)),
+                "verdict": _verdict(rho, hypothesis["expected"], len(pairs), discriminative),
             }
         )
     return results
@@ -258,6 +331,14 @@ def agreement(aria_runs: list[dict], judge_runs: list[dict]) -> dict | None:
             "ordinal",
         ),
         "mae": stats.mean_absolute_error(aria_totals, judge_totals),
+        # how much harsher the judge is overall; kappa is depressed by a purely
+        # systematic severity difference, so this is reported next to it
+        "mean_level_delta": (
+            sum(judge_totals) / len(judge_totals)
+            - sum(aria_totals) / len(aria_totals)
+            if judge_totals
+            else None
+        ),
         "interpretation": stats.interpret_kappa(overall_kappa),
     }
     return {
@@ -297,6 +378,7 @@ def build_report() -> dict:
             },
         },
         "reliability": rel,
+        "discrimination": discrimination(aria_runs),
         "convergent": convergent(aria_runs),
         "independent_judge": (
             {"model": judge_source, **(agreement(aria_runs, judge_runs) or {})}
@@ -307,10 +389,12 @@ def build_report() -> dict:
             "No human ratings: the candidate using Aria is never asked to grade it, "
             "and the team carries no manual rating chore.",
             "Reliability is Aria against itself across repeated runs of identical text.",
-            "Convergent validity is vs deterministic text features (numbers, I/we, STAR "
-            "signals, hedging), which are reproducible and hand-checkable.",
-            "An independent judge model is not ground truth; agreement with it is a "
-            "sanity check, not a certificate.",
+            "Discrimination is against the benchmark's own designed weak/strong split, "
+            "not against an external ground truth.",
+            "A proxy feature that cannot separate weak from strong answers is reported as "
+            "'not discriminative' rather than being used to score Aria.",
+            "An independent judge model is not ground truth; a small local model is much "
+            "harsher, which depresses kappa without meaning the ordering disagrees.",
             "Spaced practice is supported, but transfer to a real interview is weaker "
             "than advertised (Latimier 2021; Corral 2025) - Aria does not predict hires.",
         ],

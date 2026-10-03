@@ -25,7 +25,20 @@ type AgreementBlock = {
   kappa: number | null
   alpha: number | null
   mae: number | null
+  mean_level_delta?: number | null
   interpretation: string
+}
+
+type Discrimination = {
+  n_strong: number
+  n_weak: number
+  mean_strong: number | null
+  mean_weak: number | null
+  auc: number | null
+  interpretation: string
+  complete_separation: boolean
+  weak_at_or_above_best_strong: number
+  per_dimension?: { key: string; max: number; auc: number | null; interpretation: string }[]
 }
 
 type Report = {
@@ -34,6 +47,7 @@ type Report = {
   generated_at?: string
   eval_set?: { answers: number }
   aria?: { engine?: string | null; runs_total?: number }
+  discrimination?: Discrimination
   reliability?: {
     answers_with_repeated_runs: number
     mean_sd: number | null
@@ -90,6 +104,7 @@ export default function ValidationPanel() {
   }, [open])
 
   const rel = report?.reliability
+  const disc = report?.discrimination
   const judge = report?.independent_judge
 
   const panel = open
@@ -141,9 +156,28 @@ export default function ValidationPanel() {
                     <code className="rounded bg-white/10 px-1 py-0.5 text-white/80 font-mono text-[9px]">analyze</code> to publish the numbers.
                   </p>
                 </div>
-              ) : (
-                <>
-                  {rel && (
+            ) : (
+              <>
+                {disc && (
+                  <section>
+                    <p className="text-[10px] uppercase tracking-wider text-white/35">
+                      Can Aria tell a weak answer from a strong one?
+                    </p>
+                    <p className="mt-1 text-xs leading-relaxed text-white/70">
+                      On a benchmark of {disc.n_weak} deliberately weak and{" "}
+                      {disc.n_strong} strong answers, AUC ={" "}
+                      <span className="text-white/90">{fmt(disc.auc, 2)}</span> (
+                      {disc.interpretation}). Weak answers averaged{" "}
+                      {fmt(disc.mean_weak, 1)}, strong{" "}
+                      {fmt(disc.mean_strong, 1)} —{" "}
+                      {disc.complete_separation
+                        ? "the two groups do not overlap at all."
+                        : `${disc.weak_at_or_above_best_strong} weak answer(s) reached the best strong score.`}
+                    </p>
+                  </section>
+                )}
+
+                {rel && (
                     <section className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-3 space-y-1.5">
                       <p className="text-[10px] font-medium uppercase tracking-wider text-white/40">
                         Aria against itself
@@ -200,8 +234,18 @@ export default function ValidationPanel() {
                         {judge.answers} answers: weighted kappa{" "}
                         <span className="font-semibold text-white/90">{fmt(judge.overall.kappa)}</span>{" "}
                         ({judge.overall.interpretation}), mean gap{" "}
-                        {fmt(judge.overall.mae, 1)} points.
-                      </p>
+                      {fmt(judge.overall.mae, 1)} points
+                      {judge.overall.mean_level_delta != null && (
+                        <>
+                          {" "}
+                          — it scores about{" "}
+                          {Math.abs(Math.round(judge.overall.mean_level_delta))}{" "}
+                          points {judge.overall.mean_level_delta < 0 ? "harsher" : "softer"}
+                        </>
+                      )}
+                      . That systematic severity gap is why kappa is modest even
+                      where the ordering agrees.
+                    </p>
                     </section>
                   )}
 

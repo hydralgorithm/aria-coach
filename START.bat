@@ -29,6 +29,16 @@ echo Using Python: "%PY_EXE%"
 echo Project root: "%ROOT%"
 echo.
 
+where npm >nul 2>nul
+if %errorlevel% equ 0 (
+    echo Building latest frontend...
+    cd /d "%ROOT%\frontend"
+    call npm run build
+    cd /d "%ROOT%"
+    echo.
+)
+
+echo Starting backend server on http://127.0.0.1:8000 ...
 "%PY_EXE%" -m uvicorn backend.server:app --host 127.0.0.1 --port 8000 --reload
 
 pause

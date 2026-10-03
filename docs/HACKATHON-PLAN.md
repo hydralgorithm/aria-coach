@@ -262,16 +262,19 @@ is for the interviewee, so asking the candidate to rate Aria would be circular, 
 rating chore does not belong in a hackathon build. Validation is therefore **fully
 automated** and needs no human input:
 
+- **Discrimination (headline)** — on the benchmark's known weak/strong split, can Aria order a
+  strong answer above a weak one? Reported as AUC per dimension. *Published: 1.00, no overlap.*
 - **Reliability** — Aria scored every benchmark answer several times; publish the mean
   standard deviation and range of the *same* answer. This is the Rating Roulette point:
-  disclose variance, do not fake determinism.
+  disclose variance, do not fake determinism. *Published: mean SD 4.6, range 7.7.*
 - **Convergent validity** — deterministic, hand-checkable text features (concrete numbers,
-  "I" vs "we", STAR signposting, hedging) versus Aria's dimension scores (Spearman ρ). If the
-  evidence score does not rise when a candidate adds real evidence, the score is decorative —
-  and we say so.
+  "I" vs "we", STAR signposting, hedging) versus Aria's dimension scores (Spearman ρ), with each
+  proxy checked for discriminativeness first so a broken yardstick cannot be used to indict the
+  scorer. *Published: hedging supported (ρ −0.72), quantified numbers weakly supported (ρ 0.59),
+  I/we ratio and STAR markers reported as not discriminative.*
 - **Independent-judge agreement** — a second, *different* model (an on-device Ollama model)
   scores the same answers; report weighted Cohen's κ and Krippendorff's α. Not ground truth,
-  a sanity check.
+  a sanity check. *Published: κ 0.33, α 0.67, and the judge is ~13 points harsher.*
 
 The numbers are surfaced **read-only** in the UI, never as a form. Per Rating Roulette the
 fix is disclosure, not determinism — and this is still the cheapest credible differentiator,
@@ -588,10 +591,32 @@ validation is now **fully automated and needs zero human input**.
   header, with an explicit "no human rating is needed or requested" note and the caveats.
 - Store: `eval_runs.source` separates Aria's runs from the judge's; no personal data involved.
 
+**Methodology fix found by running it.** The first real run reported `contradicted` for the
+ownership and structure hypotheses. Inspecting the data showed the fault was the **proxy**, not
+Aria: the deliberately weak answers say “I” at least as often as the strong ones, and the STAR
+keyword regex matched almost nothing, so neither feature could separate the benchmark. Correlation
+against a yardstick that cannot measure is meaningless, so `convergent()` now checks each proxy's
+own discriminativeness first and reports **“proxy not discriminative”** instead of indicting the
+scorer. `stats.auc()` was added for that check, and `discrimination()` (AUC of strong vs weak,
+per dimension) became the headline measure.
+
+**Published results** (real runs, `docs/eval/error-bars.json`):
+
+| Measure | Result |
+|---|---|
+| **Discrimination** | AUC **1.00** (weak mean 15.1 vs strong 78.1, **no overlap**); per dimension 0.96–1.00 |
+| **Reliability** | mean SD **4.57**, mean range **7.71** across re-runs of the identical answer |
+| **Convergent validity** | hedging vs evidence ρ = **−0.72** (supported); quantified numbers ρ = **0.59** (weakly supported); I/we ratio and STAR markers reported as not discriminative |
+| **Independent judge** (`llama3.2:3b`, on-device) | weighted κ **0.328** (fair), α **0.674**, mean gap **21.2** pts, level delta **−12.6** |
+
+Read together these say something more useful than a single accuracy number: Aria **orders**
+answers almost perfectly, but its absolute score carries ~±5 points of genuine run-to-run noise,
+and a small on-device model is far harsher. That is precisely why the product leads with cited
+evidence and ordering rather than a lone uncalibrated number.
+
 **Verification**: stats hand-checked (κ linear 0.8718 / quadratic 0.9474, nominal α 0.125) plus
 300 random coincidence-vs-direct α cross-checks per metric; features/errorbars end-to-end with
-stubbed models (reliability SD/range, all four convergent hypotheses with the expected sign,
-independent-judge κ/α/MAE, and a clean `ready=False` empty state); `status` CLI; build OK; lint at
-baseline (537/3).
+stubbed models and then against **real model runs** (24 answers × 2–3 Groq runs + 24 local judge
+runs); `status` CLI; schema migration for an older local DB; build OK; lint at baseline (537/3).
 
 **Remainder**: the final documentation pass (README / SETUP / requirements), per the user.

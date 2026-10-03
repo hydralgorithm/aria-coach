@@ -1,0 +1,364 @@
+{
+  "version": 2,
+  "generated_at": "2026-10-03T00:53:42+00:00",
+  "ready": true,
+  "eval_set": {
+    "answers": 24,
+    "path": "C:\\Users\\Abdul Fattah\\Desktop\\aria-coach\\docs\\eval\\eval_set.json"
+  },
+  "aria": {
+    "engine": "groq",
+    "runs_total": 58,
+    "runs_per_answer": {
+      "min": 2,
+      "max": 3
+    }
+  },
+  "reliability": {
+    "answers_with_repeated_runs": 24,
+    "mean_sd": 4.574896708496254,
+    "mean_range": 7.708333333333333,
+    "max_range": 24.0,
+    "per_dimension_sd": {
+      "relevance_structure": 1.0534761095339429,
+      "specificity_evidence": 1.0019212944991505,
+      "impact_ownership": 1.0816294251425493,
+      "communication": 1.0133643268864128,
+      "self_awareness": 1.1649021913129138
+    },
+    "per_answer": [
+      {
+        "answer_id": 1,
+        "n": 3,
+        "mean": 11.666666666666666,
+        "sd": 4.509249752822894,
+        "range": 9.0
+      },
+      {
+        "answer_id": 2,
+        "n": 3,
+        "mean": 79.33333333333333,
+        "sd": 7.637626158259734,
+        "range": 15.0
+      },
+      {
+        "answer_id": 3,
+        "n": 3,
+        "mean": 26.0,
+        "sd": 12.288205727444508,
+        "range": 23.0
+      },
+      {
+        "answer_id": 4,
+        "n": 3,
+        "mean": 70.33333333333333,
+        "sd": 7.234178138070235,
+        "range": 13.0
+      },
+      {
+        "answer_id": 5,
+        "n": 3,
+        "mean": 14.666666666666666,
+        "sd": 0.5773502691896257,
+        "range": 1.0
+      },
+      {
+        "answer_id": 6,
+        "n": 3,
+        "mean": 66.66666666666667,
+        "sd": 8.962886439832502,
+        "range": 16.0
+      },
+      {
+        "answer_id": 7,
+        "n": 3,
+        "mean": 7.666666666666667,
+        "sd": 0.5773502691896258,
+        "range": 1.0
+      },
+      {
+        "answer_id": 8,
+        "n": 3,
+        "mean": 86.33333333333333,
+        "sd": 5.507570547286102,
+        "range": 10.0
+      },
+      {
+        "answer_id": 9,
+        "n": 3,
+        "mean": 16.0,
+        "sd": 7.0,
+        "range": 13.0
+      },
+      {
+        "answer_id": 10,
+        "n": 3,
+        "mean": 78.0,
+        "sd": 13.076696830622021,
+        "range": 24.0
+      },
+      {
+        "answer_id": 11,
+        "n": 2,
+        "mean": 15.5,
+        "sd": 3.5355339059327378,
+        "range": 5.0
+      },
+      {
+        "answer_id": 12,
+        "n": 2,
+        "mean": 82.5,
+        "sd": 6.363961030678928,
+        "range": 9.0
+      },
+      {
+        "answer_id": 13,
+        "n": 2,
+        "mean": 14.0,
+        "sd": 0.0,
+        "range": 0.0
+      },
+      {
+        "answer_id": 14,
+        "n": 2,
+        "mean": 72.0,
+        "sd": 2.8284271247461903,
+        "range": 4.0
+      },
+      {
+        "answer_id": 15,
+        "n": 2,
+        "mean": 13.0,
+        "sd": 8.48528137423857,
+        "range": 12.0
+      },
+      {
+        "answer_id": 16,
+        "n": 2,
+        "mean": 72.5,
+        "sd": 0.7071067811865476,
+        "range": 1.0
+      },
+      {
+        "answer_id": 17,
+        "n": 2,
+        "mean": 11.5,
+        "sd": 0.7071067811865476,
+        "range": 1.0
+      },
+      {
+        "answer_id": 18,
+        "n": 2,
+        "mean": 76.0,
+        "sd": 4.242640687119285,
+        "range": 6.0
+      },
+      {
+        "answer_id": 19,
+        "n": 2,
+        "mean": 25.5,
+        "sd": 2.1213203435596424,
+        "range": 3.0
+      },
+      {
+        "answer_id": 20,
+        "n": 2,
+        "mean": 83.0,
+        "sd": 2.8284271247461903,
+        "range": 4.0
+      },
+      {
+        "answer_id": 21,
+        "n": 2,
+        "mean": 10.5,
+        "sd": 4.949747468305833,
+        "range": 7.0
+      },
+      {
+        "answer_id": 22,
+        "n": 2,
+        "mean": 86.0,
+        "sd": 0.0,
+        "range": 0.0
+      },
+      {
+        "answer_id": 23,
+        "n": 2,
+        "mean": 15.5,
+        "sd": 3.5355339059327378,
+        "range": 5.0
+      },
+      {
+        "answer_id": 24,
+        "n": 2,
+        "mean": 84.5,
+        "sd": 2.1213203435596424,
+        "range": 3.0
+      }
+    ]
+  },
+  "discrimination": {
+    "n_strong": 12,
+    "n_weak": 12,
+    "mean_strong": 78.09722222222221,
+    "mean_weak": 15.125,
+    "min_strong": 66.66666666666667,
+    "max_weak": 26.0,
+    "auc": 1.0,
+    "interpretation": "near-perfect separation",
+    "complete_separation": true,
+    "weak_at_or_above_best_strong": 0,
+    "per_dimension": [
+      {
+        "key": "relevance_structure",
+        "max": 25,
+        "auc": 1.0,
+        "interpretation": "near-perfect separation"
+      },
+      {
+        "key": "specificity_evidence",
+        "max": 25,
+        "auc": 1.0,
+        "interpretation": "near-perfect separation"
+      },
+      {
+        "key": "impact_ownership",
+        "max": 20,
+        "auc": 1.0,
+        "interpretation": "near-perfect separation"
+      },
+      {
+        "key": "communication",
+        "max": 15,
+        "auc": 1.0,
+        "interpretation": "near-perfect separation"
+      },
+      {
+        "key": "self_awareness",
+        "max": 15,
+        "auc": 0.958,
+        "interpretation": "near-perfect separation"
+      }
+    ]
+  },
+  "convergent": [
+    {
+      "dimension": "specificity_evidence",
+      "feature": "quantified",
+      "feature_label": "numbers with a unit or outcome",
+      "expected": "+",
+      "label": "more quantified outcomes should raise the evidence score",
+      "rho": 0.587,
+      "proxy_auc": 0.708,
+      "proxy_discriminative": true,
+      "n": 24,
+      "verdict": "weakly supported"
+    },
+    {
+      "dimension": "impact_ownership",
+      "feature": "ownership_ratio",
+      "feature_label": "share of I/my vs we/our",
+      "expected": "+",
+      "label": "saying I rather than we should raise the ownership score",
+      "rho": -0.031,
+      "proxy_auc": 0.42,
+      "proxy_discriminative": false,
+      "n": 24,
+      "verdict": "proxy not discriminative"
+    },
+    {
+      "dimension": "relevance_structure",
+      "feature": "star_signals",
+      "feature_label": "STAR / result signposting",
+      "expected": "+",
+      "label": "STAR signposting should raise the structure score",
+      "rho": 0.025,
+      "proxy_auc": 0.51,
+      "proxy_discriminative": false,
+      "n": 24,
+      "verdict": "proxy not discriminative"
+    },
+    {
+      "dimension": "specificity_evidence",
+      "feature": "hedges",
+      "feature_label": "vague hedging words",
+      "expected": "-",
+      "label": "vague hedging should lower the evidence score",
+      "rho": -0.723,
+      "proxy_auc": 0.125,
+      "proxy_discriminative": true,
+      "n": 24,
+      "verdict": "supported"
+    }
+  ],
+  "independent_judge": {
+    "model": "llama3.2:3b",
+    "answers": 24,
+    "dimensions": [
+      {
+        "key": "relevance_structure",
+        "max": 25,
+        "kappa": 0.23696682464454966,
+        "alpha": 0.5703461087211575,
+        "mae": 6.708333333333333,
+        "interpretation": "fair"
+      },
+      {
+        "key": "specificity_evidence",
+        "max": 25,
+        "kappa": 0.48006134969325154,
+        "alpha": 0.6197657774586693,
+        "mae": 4.708333333333333,
+        "interpretation": "moderate"
+      },
+      {
+        "key": "impact_ownership",
+        "max": 20,
+        "kappa": 0.3075874602453431,
+        "alpha": 0.6478468745988961,
+        "mae": 5.291666666666667,
+        "interpretation": "fair"
+      },
+      {
+        "key": "communication",
+        "max": 15,
+        "kappa": 0.049689440993788914,
+        "alpha": 0.03064353037218448,
+        "mae": 4.25,
+        "interpretation": "slight"
+      },
+      {
+        "key": "self_awareness",
+        "max": 15,
+        "kappa": 0.16157205240174677,
+        "alpha": 0.1338575734256764,
+        "mae": 3.3333333333333335,
+        "interpretation": "slight"
+      }
+    ],
+    "overall": {
+      "key": "overall",
+      "max": 100,
+      "kappa": 0.3278200463116109,
+      "alpha": 0.6738607393244105,
+      "mae": 21.166666666666668,
+      "mean_level_delta": -12.583333333333336,
+      "interpretation": "fair"
+    }
+  },
+  "caveats": [
+    "No human ratings: the candidate using Aria is never asked to grade it, and the team carries no manual rating chore.",
+    "Reliability is Aria against itself across repeated runs of identical text.",
+    "Discrimination is against the benchmark's own designed weak/strong split, not against an external ground truth.",
+    "A proxy feature that cannot separate weak from strong answers is reported as 'not discriminative' rather than being used to score Aria.",
+    "An independent judge model is not ground truth; a small local model is much harsher, which depresses kappa without meaning the ordering disagrees.",
+    "Spaced practice is supported, but transfer to a real interview is weaker than advertised (Latimier 2021; Corral 2025) - Aria does not predict hires."
+  ],
+  "dimensions": {
+    "relevance_structure": 25,
+    "specificity_evidence": 25,
+    "impact_ownership": 20,
+    "communication": 15,
+    "self_awareness": 15
+  }
+}

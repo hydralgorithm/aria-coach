@@ -19,10 +19,14 @@ import re
 _NUMBER_RE = re.compile(r"\d[\d,.]*")
 _QUANTIFIED_RE = re.compile(
     r"\b\d[\d,.]*\s?"
-    r"(?:%|percent|x\b|k\b|m\b|ms\b|s\b|sec|seconds?|min|minutes?|hours?|hrs?|"
-    r"days?|weeks?|months?|years?|users?|customers?|people|requests?|releases?)\b",
+    r"(?:%|percent\b|x\b|\bk\b|\bm\b|\bms\b|\bs\b|\bsec(?:ond)?s?\b|"
+    r"\bmin(?:ute)?s?\b|\bh(?:ou)?rs?\b|\bd(?:ay)?s?\b|\bw(?:eek)?s?\b|"
+    r"\bm(?:onth)?s?\b|\by(?:ear)?s?\b|\busers?\b|\bcustomers?\b|\bpeople\b|"
+    r"\brequests?\b|\breleases?\b|\borders?\b|\btickets?\b)",
     re.IGNORECASE,
 )
+# currency amounts ("$1.2M", "INR 40,000") - a unit the number-with-unit rule misses
+_CURRENCY_RE = re.compile(r"[₹$€£]\s?\d[\d,.]*")
 _I_RE = re.compile(r"\b(?:i|my|mine|myself)\b", re.IGNORECASE)
 _WE_RE = re.compile(r"\b(?:we|our|ours|us)\b", re.IGNORECASE)
 _STAR_RE = re.compile(
@@ -90,7 +94,8 @@ def extract(text: str) -> dict:
     return {
         "words": len(words),
         "numbers": len(_NUMBER_RE.findall(text)),
-        "quantified": len(_QUANTIFIED_RE.findall(text)),
+        "quantified": len(_QUANTIFIED_RE.findall(text))
+        + len(_CURRENCY_RE.findall(text)),
         "i_count": i_count,
         "we_count": we_count,
         "ownership_ratio": (

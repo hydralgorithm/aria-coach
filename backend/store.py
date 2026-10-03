@@ -388,6 +388,15 @@ def clear_eval_runs_for(answer_id: int, source: str = "aria") -> None:
         )
 
 
+def eval_run_count(answer_id: int, source: str = "aria") -> int:
+    with _db() as conn:
+        row = conn.execute(
+            "SELECT COUNT(*) c FROM eval_runs WHERE answer_id = ? AND source = ?",
+            (int(answer_id or 0), str(source or "aria")),
+        ).fetchone()
+    return int(row["c"] or 0)
+
+
 def eval_sources() -> list[str]:
     with _db() as conn:
         rows = conn.execute(

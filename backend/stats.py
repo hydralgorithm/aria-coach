@@ -248,6 +248,44 @@ def spearman_rho(a, b) -> float:
     return float((rx * ry).sum() / denom)
 
 
+def auc(high, low) -> float:
+    """Area under the ROC curve, i.e. P(a random `high` beats a random `low`).
+
+    Ties count a half. 0.5 means the two groups are indistinguishable, 1.0
+    means perfect separation. Used to test whether an instrument can tell the
+    benchmark's weak answers from its strong ones, and whether a proxy feature
+    discriminates at all before it is trusted for a correlation.
+    """
+    high = _present(high)
+    low = _present(low)
+    if high.size == 0 or low.size == 0:
+        return float("nan")
+    wins = ties = 0
+    for h in high:
+        for l in low:
+            if h > l:
+                wins += 1
+            elif h == l:
+                ties += 1
+    return (wins + 0.5 * ties) / (high.size * low.size)
+
+
+def interpret_auc(value: float) -> str:
+    if value is None or math.isnan(value):
+        return "not enough data"
+    if value >= 0.9:
+        return "near-perfect separation"
+    if value >= 0.8:
+        return "strong separation"
+    if value >= 0.7:
+        return "acceptable separation"
+    if value >= 0.6:
+        return "weak separation"
+    if value >= 0.55:
+        return "poor separation"
+    return "indistinguishable"
+
+
 def interpret_kappa(value: float) -> str:
     """Landis & Koch verbal bands, used verbatim in the UI."""
     if value is None or math.isnan(value):

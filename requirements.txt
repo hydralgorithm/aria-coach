@@ -1,27 +1,46 @@
-# LLM & Voice API
-groq>=0.11
+# Aria — backend dependencies (Python 3.12)
+#
+#   pip install -r requirements.txt
+#
+# Full setup, including model downloads and verification steps: SETUP.md
 
-# Audio capture & playback
+# --- Cloud LLM + speech-to-text (one free key; see .env.example) -------------
+groq>=0.11
+python-dotenv>=1.0
+
+# --- Local text-to-speech (Kokoro ONNX, CPU, fully offline) -----------------
+kokoro-onnx>=0.6.0
+onnxruntime>=1.20.0
+
+# --- Audio capture + playback (CLI mic mode, wav I/O) -----------------------
 sounddevice>=0.4.6
 soundfile>=0.12
 numpy>=2.0
 
-# Kokoro local TTS (ONNX)
-kokoro-onnx>=0.6.0
-onnxruntime>=1.20.0
-
-# Backend Web Server
+# --- Web server -------------------------------------------------------------
 fastapi>=0.115
 uvicorn[standard]>=0.30
-python-multipart>=0.0.9
+python-multipart>=0.0.9   # multipart form parsing for the resume upload
 pydantic>=2.0
 
-# Resume parsing & OCR
-pypdf>=5.0
-pymupdf>=1.24
+# --- Resume parsing + OCR ---------------------------------------------------
+pymupdf>=1.24             # PDF text + geometry, used by the ATS parse audit
 pillow>=10.0
-pytesseract>=0.3.10
+pytesseract>=0.3.10       # ALSO needs the Tesseract *binary*; see SETUP.md
 
-# Utilities & Config
-python-dotenv>=1.0
-loguru>=0.7,<0.8
+# ---------------------------------------------------------------------------
+# Optional extras (not required, not installed by default)
+#
+#   pip install edge-tts
+#     Secondary text-to-speech fallback, used only if Kokoro fails to render.
+#
+#   Ollama  (https://ollama.com, then: ollama pull llama3.2:3b)
+#     Local LLM used when the cloud is unreachable, and as the independent
+#     judge for the published validation. Configured via OLLAMA_HOST /
+#     OLLAMA_MODEL in .env.
+# ---------------------------------------------------------------------------
+#
+# Deliberately NOT a dependency: scipy / sklearn / pandas. The published error
+# bars (backend/stats.py — weighted Cohen's kappa, Krippendorff's alpha,
+# Spearman, AUC) are written in plain NumPy so the maths stays auditable and
+# unit-testable instead of hidden inside a statistics library.

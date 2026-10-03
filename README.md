@@ -1,313 +1,313 @@
-# Aria — Voice Interview Coach
+# Aria — the interview coach that shows its work
 
-Aria is a local-first interview-practice app. It supports a conversational
-voice mode and a resume-grounded interview coach with spoken questions,
-rubric-based scoring, and an optional on-device camera setup check.
+**Aria shows you what the machine actually received — not what you meant.**
 
-This is a working prototype, not a production service:
+A voice-first interview practice coach. You talk; Aria shows you the transcript it
+heard, the résumé text an ATS would extract, the exact words behind every piece of
+feedback, how much its own score wobbles, and what it refuses to score at all.
 
-- The LLM and speech-to-text requests go to Groq by default and require an API
-  key. When the cloud is unreachable, the LLM falls back to a local Ollama model
-  if one is running.
-- Text-to-speech runs locally with Kokoro ONNX.
-- Session state is held in memory; there is no account, database, or
-  multi-user isolation.
-- Browser camera analysis stays on the device. Video is not uploaded.
+> **Aria never invents a number for you — not in your résumé, not in your interview.**
+> Every strength cites a verbatim span. Every missing fact is a `[add metric]`
+> placeholder, never a fabricated figure.
 
-## Current stack
+---
 
-| Area | Technology |
-| --- | --- |
-| Web UI | React 19, Vite 8, TypeScript, Tailwind CSS v4 |
-| API | FastAPI + Uvicorn |
-| LLM | Groq `qwen/qwen3.8-27b` by default; configurable with `GROQ_MODEL` |
-| Speech-to-text | Groq `whisper-large-v3-turbo` |
-| Text-to-speech | Kokoro ONNX, local CPU inference |
-| Resume parsing | PyMuPDF text extraction with Tesseract OCR fallback |
-| Camera setup check | MediaPipe Face Landmarker in the browser |
-| Browser checks | Puppeteer scripts in `frontend/scripts/` |
+## The problem
 
-## Features
+Three defects are invisible to the candidate and measurable in the research:
 
-### Free chat
+1. **ASR mishears accents, and the score is computed from the corrupted text.**
+   Regional-accent bias measurably reduces hireability ratings
+   ([Maindidze et al. 2025](https://onlinelibrary.wiley.com/doi/10.1111/ijsa.12519)),
+   and ASR atypical-speech bias is documented as a live harm
+   ([Ada Lovelace Institute, 2026](https://www.adalovelaceinstitute.org/report/scribe-and-prejudice/)).
+   A candidate who answers perfectly can be told to "add more metrics" for a sentence
+   the *machine* got wrong. Aria shows you the transcript **before** anything is scored.
 
-Talk to Aria using the browser microphone, or type in the composer. Aria
-transcribes the turn, sends it to the LLM, and plays the response aloud.
-Press **Space** or tap the microphone while Aria is speaking to barge in.
-**New session** clears the chat history.
+2. **Nobody publishes how wrong their scores are.** LLM-as-judge shows low intra-rater
+   reliability across identical runs, and forcing determinism makes agreement with humans
+   *worse* ([Rating Roulette, arXiv 2510.27106](https://arxiv.org/html/2510.27106)).
+   The whole category ships a 0–100 number and a disclaimer. Aria measures and publishes
+   its own error bars (see below).
 
-### Resume-based interview coach
+3. **Nobody shows the machinery.** Your résumé: *this is what the parser extracted.*
+   Your answer: *this is what the mic heard.* Your score: *and here's exactly which of
+   your words it came from.* The category optimises for you getting hired; a tool that
+   shows the machinery and then declines to fabricate is a position competitors cannot
+   copy without changing their business model.
 
-Switch to **Interview coach**, choose an interviewer, and upload a PDF or text
-resume. Aria extracts resume facts, generates six tailored questions, and
-scores each answer out of 100 across:
+---
 
-- structure and evidence (STAR/SOARA)
-- impact and ownership
-- clarity and self-awareness
-- red flags and an HR insight
+## What it does
 
-The session ends with the average score and a summary of the areas to improve.
-Scanned PDFs are sent through local Tesseract OCR when they have no usable text
-layer.
+**Free chat** — push-to-talk (or type) conversational practice. `Space` or the mic
+button interrupts Aria mid-sentence.
 
-An **evidence-preserving revision** shows the candidate's own answer tightened,
-with `[add metric]`-style placeholders where a fact is missing. Aria never
-invents a number, employer or outcome.
+**Interview coach** — upload a résumé (PDF/TXT, OCR'd if scanned), pick one of five
+documented interviewer personas, and get six questions written from *your* facts, scored
+on a five-dimension HR scorecard:
 
-Voice answers stop at a **transcript gate**: Aria shows exactly what the mic
-heard, editable, and scores nothing until you confirm. Fix a misheard word and
-the score reflects your corrected words — the one moment where you can watch
-Aria be wrong, and then be right.
+| Dimension | Max | What it measures |
+|---|---|---|
+| `relevance_structure` | 25 | STAR shape, on-topic, no rambling |
+| `specificity_evidence` | 25 | concrete detail, numbers, baselines, "I" not "we" |
+| `impact_ownership` | 20 | measurable outcome, ownership, decision quality |
+| `communication` | 15 | clarity, concision, spoken readability |
+| `self_awareness` | 15 | reflection, what they'd change, coachability |
 
-Every strength, improvement and red flag is an **evidence item**: a quoted span
-from your answer or résumé, or an explicit *general suggestion*. Aria verifies
-each quote against the transcript or resume and drops it if it cannot be found —
-it never presents a fabricated quote as evidence.
+Then, the parts that are actually different:
 
-Paste a **job description** (on upload, or before you start answering) and Aria
-builds a **Requirement × Evidence × Confidence** map: each requirement the JD
-states, the verbatim résumé line that supports it, and whether it reads as a
-strong match, a partial match, or a gap. The six questions are then generated
-*from the gaps* — bounded, grounded selection rather than open-ended autonomy.
+### ATS parse audit — "here's what the ATS actually read"
+A deterministic (no-LLM) audit of the PDF: column detection, table count, images,
+repeating headers/footers, section detection, contact extraction, encoding artefacts.
+It shows **the raw text the parser read** next to a flag explaining every divergence.
+This is the brief's *"suggests improvements for ATS compatibility"* — without shipping a
+second uncalibrated ATS score, because ATS vendor match-scores are opaque even by their
+own admission.
 
-### Practice history & retries
+### Transcript gate — the one moment you watch Aria be wrong, then right
+Voice never goes straight to scoring. You see the transcript, editable, and **nothing is
+scored until you confirm**. Fix one misheard word and watch the score move.
 
-Aria keeps a **local practice history** in a single SQLite file
-(`aria_history.db`, gitignored; set `ARIA_DB` to relocate it). It stores the
-questions, answers and score breakdowns so you can see per-competency trends and
-weak spots across sessions. Nothing is uploaded — the header's **Your progress**
-panel can export, import or delete it.
+### Evidence-cited feedback
+Every strength, improvement and red flag is an object with a **verbatim quote**, verified
+against the actual transcript or résumé before display. A quote that cannot be found is
+dropped and the observation is re-labelled *general suggestion*. Aria never presents a
+fabricated quote as evidence.
 
-**Confidence is measured as behaviour, not read from a face:** answered →
-corrected → retried → improved. Both the progress panel and the end-of-session
-summary show those counts and say plainly where the numbers come from.
-**Weak competencies are re-queued** as spaced practice in your next session —
-practice scheduling from your own history, never a prediction about hiring.
+### Job-description grounding
+Paste a JD and Aria builds a **Requirement × Evidence × Confidence** map — each
+requirement the employer states, the verbatim résumé line supporting it, and whether it
+reads strong / partial / gap. A claimed match that can't be quoted is downgraded to a gap.
+Questions are then generated **from the gaps**, by bounded selection rather than open-ended
+autonomy.
 
-**Retry any question.** A retry is scored out-of-band: the first attempt is kept
-and Aria shows a side-by-side diff — score before → after, which scorecard
-dimensions moved, and a word-level comparison of what you added or dropped
-(including any numbers you added). That comparison is arithmetic on the two
-transcripts, not a model's opinion, so every change is checkable.
+### Retry → side-by-side diff → what changed
+Retry any question. The first attempt is kept; Aria shows score before → after, which
+scorecard dimensions moved, and a **word-level comparison** of what you added or dropped —
+including the numbers you added. That comparison is arithmetic on the two transcripts, not
+a model's opinion, so every change is checkable.
 
-### Published validation
+### Local practice history and spaced practice
+A local SQLite file holds per-competency history. **Weak competencies are re-queued** as
+spaced practice in your next session. Confidence is measured as *behaviour chosen* —
+answered → corrected → retried → improved — and never read from your face.
 
-Aria publishes how trustworthy its own scores are. Validation is **automatic and
-needs no human rating** — the candidate practising is never asked to grade Aria
-(that would be circular). Three measures, produced offline by
-`scripts/errorbars.py` over a fixed 24-answer benchmark
-([`docs/eval/eval_set.json`](docs/eval/eval_set.json)):
+### Camera setup check
+A 3D face tracker runs at ~25 fps **entirely in your browser** and is used exclusively to
+tell you your lamp is behind you: are you in frame, is your head toward the camera, is
+anyone else visible. Per **EU AI Act Article 5(1)(f)** — in force since Feb 2025 — Aria
+does not infer emotion in the workplace, so smile/warmth/tension/blink readouts were
+deliberately deleted and none of it touches the score.
 
-- **Reliability** — Aria scores every benchmark answer several times, and we
-  publish the spread of the *same* answer. The fix for noisy scorers is
-disclosure, not fake determinism.
-- **Convergent validity** — deterministic text features (concrete numbers, "I"
-  vs "we", STAR signposting, hedging) versus Aria's dimension scores. If the
-  evidence score does not rise when a candidate adds real evidence, we say so.
-- **Independent-judge agreement** — a second, different model (on-device Ollama)
-  scores the same answers; weighted Cohen's κ and Krippendorff's α are reported.
+---
 
-The header's **Published validation** panel shows the numbers read-only.
+## Published validation
 
-```powershell
+Nobody in this category ships validation. Aria's is **automated and needs no human
+rating** — the candidate practising is never asked to grade it. From
+[`docs/eval/error-bars.json`](docs/eval/error-bars.json), over a fixed 24-answer
+benchmark (12 deliberately weak + 12 deliberately strong):
+
+| Measure | Result | What it means |
+|---|---|---|
+| **Discrimination** | AUC **1.00** — weak mean 15.1, strong 78.1, **no overlap** (per-dimension 0.96–1.00) | Aria reliably orders a weak answer below a strong one |
+| **Reliability** | mean SD **±4.6**, mean range **7.7** | re-scoring the *same* answer moves it ~5 points — trust the ordering and the evidence, not the exact number |
+| **Convergent validity** | hedging vs evidence ρ = **−0.72**; quantified numbers ρ = **0.59** | vague answers score lower on evidence; adding numbers raises it, imperfectly |
+| **Independent judge** | κ **0.33**, α **0.67**, mean gap 21 pts, ~13 pts harsher | a 3B on-device model agrees only moderately; the systematic severity gap is why κ is modest |
+
+Two of the four keyword proxies (I/we ratio, STAR markers) turned out **not
+discriminative** on this benchmark — the weak answers say "I" just as much as the strong
+ones — so the report says so instead of using them to score Aria. Publishing what failed
+is the point.
+
+Regenerate with:
+
+```bash
 python scripts/errorbars.py score --repeats 3   # Aria vs itself
 python scripts/errorbars.py judge               # independent local model
 python scripts/errorbars.py analyze             # writes docs/eval/error-bars.json
 ```
 
-### Interviewer personas
+---
 
-Each persona changes the interviewer's behaviour, questions, and Kokoro voice.
-A persona can be changed before or during a session. Personas never change the
-score — the same answer scores the same for every interviewer.
+## Where each step runs
 
-| Persona | Style | Voice |
-| --- | --- | --- |
-| **The Structured Panel** | Balanced, competency-based interview | `af_heart` |
-| **The Bar-Raiser** | High-bar and evidence-obsessed | `am_michael` |
-| **The Talent Coach** | Supportive coaching round with hints | `af_bella` |
-| **The Phone Screener** | Fast first-round screen | `am_adam` |
-| **The Stress Interviewer** *(advanced)* | Adversarial round with mild traps | `bm_george` |
-
-### Camera setup check
-
-In interview mode, **Camera setup check** runs MediaPipe locally to verify
-interview logistics: are you in frame, is your head oriented toward the camera,
-and is anyone else visible. It never reads emotion and it never affects the
-score — per EU AI Act Article 5(1)(f), Aria does not infer how you feel from
-your face. Smile, warmth, tension and blink readouts were deliberately removed.
-
-The framing maths is calibrated to the candidate's neutral pose so normal
-screen-reading posture is not penalised. The pure metric functions and
-regression checks live in
-[`frontend/src/lib/faceMetrics.ts`](frontend/src/lib/faceMetrics.ts) and
-`frontend/scripts/face-metrics-test.mjs`. See
-[`DELIVERY-METRICS.md`](DELIVERY-METRICS.md) for the audit and rationale.
-
-### Where each step runs
-
-Aria is explicit about the split — `/api/health` reports it, and the header's
-**Where this runs** panel shows it live.
+Honest about the split. `/api/health` reports it and the header's **Where this runs**
+panel shows it live.
 
 | Task | Runs on | Why |
-| --- | --- | --- |
-| Speech-to-text | Groq Whisper (cloud) | most accurate on accents; the transcript gate exists because any ASR can mishear |
-| Résumé text extraction | on-device (PyMuPDF / Tesseract) | the raw text never leaves the machine |
-| Field extraction & scoring | Groq (cloud), local Ollama fallback | a small local model genuinely underperforms on rubric judgement |
-| Text-to-speech | on-device (Kokoro) | free credibility |
-| Camera setup check | in-browser (MediaPipe) | no video ever leaves the device |
-| Parse audit & evidence checks | on-device, deterministic | reproducible, not sampled |
+|---|---|---|
+| Speech-to-text | Groq Whisper (**cloud**) | most accurate on accents; the transcript gate exists because *any* ASR can mishear |
+| Résumé text extraction | **on-device** (PyMuPDF / Tesseract) | the raw text never leaves the machine |
+| Field extraction & scoring | Groq (**cloud**), local Ollama fallback | a small local model genuinely underperforms on rubric judgement |
+| Text-to-speech | **on-device** (Kokoro ONNX) | free credibility |
+| Camera setup check | **in-browser** (MediaPipe) | no video ever leaves the device |
+| Parse audit & evidence checks | **on-device, deterministic** | reproducible, not sampled |
+| Practice history | **on-device** SQLite | exportable, inspectable, deletable |
 
-Set `OLLAMA_MODEL` (default `llama3.2:3b`) and keep Ollama running to use the
-offline fallback: when the cloud is unreachable, parsing and scoring continue
-locally. The active engine is shown in `/api/health` (`engines.llm_last`).
+> **ZDR means *not retained*. On-device means *never left the laptop*.** Only the second
+> one satisfies "user data remains secure" — so we do the second wherever it's honest to,
+> and say plainly where it isn't.
+
+Keep Ollama running (`ollama pull llama3.2:3b`) and parsing, scoring and the offline
+demo continue locally. `OLLAMA_HOST` / `OLLAMA_MODEL` configure it.
+
+---
 
 ## Quick start
 
-For a complete fresh-machine setup, including Python, Node.js, ffmpeg,
-Tesseract, Kokoro model weights, and Windows troubleshooting, follow
-[`SETUP.md`](SETUP.md).
+Full guide, including model downloads and per-step verification:
+**[`SETUP.md`](SETUP.md)**.
 
-The short version is:
+Short version (Python **3.12**, Node **20+**):
 
-1. Install Python 3.12, Node.js 20+, ffmpeg, and (for scanned PDFs) Tesseract.
-2. Create and activate a virtual environment:
+```bash
+git clone <repo> aria && cd aria
 
-   ```powershell
-   py -3.12 -m venv .venv
-   .venv\Scripts\Activate.ps1
-   ```
+python3.12 -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
+pip install -r requirements.txt
+cp .env.example .env                                     # add your Groq key
 
-3. Install backend dependencies and configure Groq:
+# Kokoro TTS weights (~353 MB, gitignored — the only manual download)
+python - <<'EOF'
+import urllib.request, os
+os.makedirs('models', exist_ok=True)
+for url, dest in [
+  ('https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/kokoro-v1.0.onnx','models/kokoro-v1.0.onnx'),
+  ('https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/voices-v1.0.bin','models/voices-v1.0.bin'),
+]:
+    if not os.path.exists(dest) or os.path.getsize(dest) < 1_000_000:
+        urllib.request.urlretrieve(url, dest)
+print('models ready')
+EOF
 
-   ```powershell
-   pip install -r requirements.txt
-   copy .env.example .env
-   ```
-
-   Set `GROQ_API_KEY` in `.env`. Optionally set `GROQ_MODEL`; the default is
-   `qwen/qwen3.8-27b`.
-
-4. Download `models/kokoro-v1.0.onnx` and `models/voices-v1.0.bin` by following
-   the model step in [`SETUP.md`](SETUP.md).
-   The model files are intentionally ignored by Git.
-5. Build the frontend:
-
-   ```powershell
-   cd frontend
-   npm install
-   npm run build
-   cd ..
-   ```
-
-6. Start the API and web UI:
-
-   ```powershell
-   .venv\Scripts\python.exe -m uvicorn backend.server:app --host 127.0.0.1 --port 8000 --reload
-   ```
-
-   On Windows, double-click [`START.bat`](START.bat)
-   instead; it configures the Python DLL and package paths before starting
-   Uvicorn.
-
-7. Open <http://127.0.0.1:8000>.
-
-The API exposes a health check at
-<http://127.0.0.1:8000/api/health>. It reports the active Groq model and
-whether the Kokoro files are available.
-
-## CLI mode
-
-The original terminal conversation is still available:
-
-```powershell
-python main.py          # microphone conversation
-python main.py --text   # keyboard-only conversation
+cd frontend && npm install && npm run build && cd ..
+python -m uvicorn backend.server:app --host 127.0.0.1 --port 8000
 ```
 
-Use `/reset` for a new conversation. Press `Ctrl+C` and confirm with `y` to
-quit.
+Open <http://127.0.0.1:8000>. Health check: `/api/health`.
 
-## Verification
+The camera model (`frontend/public/models/face_landmarker.task`) and MediaPipe WASM ship
+with the repo — nothing to download for the face tracker.
 
-Run these from `frontend/`:
-
-```powershell
-npm run build
-npm run lint
-node scripts/face-metrics-test.mjs
-```
-
-The browser-driven checks require a Chromium executable and a running backend:
-
-```powershell
-node scripts/mic-test.mjs http://127.0.0.1:8000
-node scripts/face-test.mjs http://127.0.0.1:8000 path\to\resume.pdf
-```
-
-`mic-test.mjs` uses a fake microphone. `face-test.mjs` uses a fake camera and
-expects a Y4M face-video fixture; set `CHROME_PATH`, `FAKE_MIC_FILE`, and
-`FAKE_VIDEO` when the defaults do not match your machine. The other probes in
-`frontend/scripts/` inspect the raw audio/video paths.
-
-## API surface
-
-| Method | Endpoint | Purpose |
-| --- | --- | --- |
-| `GET` | `/api/health` | Backend and model diagnostics |
-| `POST` | `/api/transcribe` | Convert browser audio to text |
-| `POST` | `/api/chat` | Chat with Aria |
-| `POST` | `/api/reset` | Reset free-chat history |
-| `GET` | `/api/personas` | List interview personas |
-| `POST` | `/api/interview/resume` | Parse a resume (and optional JD) and create questions |
-| `POST` | `/api/interview/jd` | Ground the questions in a pasted job description |
-| `POST` | `/api/interview/persona` | Switch the active interviewer |
-| `POST` | `/api/interview/answer` | Score an answer and return the next question |
-| `POST` | `/api/interview/retry` | Re-answer a question; returns the attempt diff |
-| `GET` | `/api/interview/state` | Read the current interview session |
-| `POST` | `/api/interview/reset` | Reset interview state |
-| `GET` | `/api/history` | Local practice history (sessions, competencies, behaviour) |
-| `GET` | `/api/history/export` | Export the local history as JSON |
-| `POST` | `/api/history/import` | Import a history export |
-| `POST` | `/api/history/clear` | Delete the local history |
-| `GET` | `/api/history/session/{id}` | Read one stored session |
-| `GET` | `/api/eval/error-bars` | Published validation numbers (read-only) |
+---
 
 ## Architecture
 
 ```text
 Chrome
-  ├─ microphone (MediaRecorder webm/opus)
-  │    └─ POST /api/transcribe ── Groq Whisper
-  ├─ text ─────────────────────── POST /api/chat
-  │                                 └─ Groq LLM
-  └─ interview resume/answers ──── POST /api/interview/*
-                                    ├─ PyMuPDF / Tesseract
-                                    ├─ Groq LLM
-                                    └─ Kokoro ONNX ── wav
+ ├─ microphone (MediaRecorder webm/opus)
+ │    └─ POST /api/transcribe ──▶ Groq Whisper          (cloud)
+ │         └─ transcript gate: editable, user-confirmed
+ │              └─ POST /api/interview/answer ──▶ coach._score_question
+ │                   ├─ SCORE_SYSTEM ──▶ Groq LLM (fallback: local Ollama)
+ │                   ├─ _evidence()  ── verbatim quote verification (local)
+ │                   └─ store.save_answer ──▶ local SQLite
+ ├─ text ──▶ POST /api/chat ──▶ LLM ──▶ Kokoro ONNX ──▶ wav
+ └─ camera ──▶ MediaPipe in-browser ──▶ setup notes only, never scored
 
-Chrome ◀────────── FastAPI serves frontend/dist and static/audio
+FastAPI (backend/server.py) serves frontend/dist and static/audio
 ```
 
-The backend reuses `backend/brain.py` and `backend/tts.py` for both the web
-application and CLI. Interview orchestration and scoring live in
-`backend/coach.py`; document extraction lives in `backend/parsing.py`.
+| Module | Responsibility |
+|---|---|
+| `backend/coach.py` | personas, prompt design, evidence verification, retry + diff, coverage map |
+| `backend/brain.py` | Groq client, **cloud-first / local-fallback** completion, Whisper |
+| `backend/parsing.py` | PDF/OCR extraction + deterministic ATS parse audit |
+| `backend/store.py` | local SQLite practice history (best-effort, never fatal) |
+| `backend/stats.py` | weighted Cohen's κ, Krippendorff's α, Spearman, AUC — plain NumPy |
+| `backend/features.py` | deterministic, hand-checkable text features |
+| `backend/errorbars.py` | assembles the published validation report |
+| `backend/tts.py` | Kokoro ONNX rendering; `backend/audio.py` mic capture |
+| `scripts/errorbars.py` | offline developer CLI for the validation |
 
-## Troubleshooting
+---
 
-- **Microphone transcription fails:** install ffmpeg and restart the terminal.
-  The backend also accepts `FFMPEG_BINARY` as the full path to `ffmpeg.exe`.
-- **Responses fail with a Groq model error:** set `GROQ_MODEL` in `.env` to a
-  model available to your Groq account, then restart the backend.
-- **No spoken response:** check `/api/health`, confirm both Kokoro model files
-  exist, and use the browser's manual **Play reply** control if autoplay was
-  blocked.
-- **Scanned resume cannot be read:** install the Tesseract binary in addition
-  to the Python `pytesseract` package.
-- **Camera unavailable:** grant camera permission and verify that Chromium can
-  access the selected device. Camera analysis is optional; interview scoring
-  still works without it.
+## Project layout
 
-See [`SETUP.md`](SETUP.md) for
-platform-specific installation and detailed diagnostics.
+```text
+backend/     FastAPI app, coach, parsing, store, stats, features, errorbars, TTS
+frontend/    React 19 + Vite 8 + Tailwind 4 + TS
+  src/components/  InterviewView, CameraSetup, ProgressPanel, ValidationPanel, WhereItRuns
+  src/hooks/       useInterview, useVoice, useFaceAnalysis
+  src/lib/faceMetrics.ts   pure, unit-tested framing maths
+docs/        HACKATHON-PLAN.md (strategy + build log), eval/ (benchmark + published report)
+models/      Kokoro ONNX weights (gitignored)
+static/      generated audio (gitignored)
+main.py      original CLI conversation mode
+```
+
+---
+
+## Verification
+
+```bash
+cd frontend
+npm run build                       # tsc -b && vite build
+npm run lint                        # oxlint (baseline: 537 warnings / 3 errors, all in vendored public/wasm)
+node scripts/face-metrics-test.mjs  # 14 checks on the camera framing maths
+
+cd ..
+python scripts/errorbars.py analyze # rebuild the published validation report
+```
+
+The agreement statistics are unit-tested against hand-computed reference values, and the
+two independent implementations of Krippendorff's α are cross-checked on random data.
+
+---
+
+## Privacy and legal stance
+
+- **Your data stays local.** Practice history is one SQLite file (`aria_history.db`,
+  gitignored, `ARIA_DB` to relocate). Export, inspect or delete it any time. Nothing is
+  uploaded.
+- **No emotion inference.** Aria does not score your face, voice, accent or tone. The
+  camera exists to check your lighting. See
+  [`DELIVERY-METRICS.md`](DELIVERY-METRICS.md) for the audit and rationale.
+- **Personas don't move the number.** Five interviewers behave differently, but the score
+  is the raw scorecard total — the same answer scores the same for everyone, which is what
+  makes retries comparable.
+- **Not a hiring prediction.** Spaced practice is supported
+  ([Latimier et al. 2021](http://www.lscp.net/persons/ramus/docs/EPR20.pdf)) but transfer to
+  a real interview is weaker than advertised
+  ([Corral et al. 2025](https://www.sciencedirect.com/science/article/pii/S0959475225001434)).
+  Aria does not claim to predict hire outcomes.
+- **Not for live interviews.** Aria is practice software. Live-interview assistance
+  violates employer rules and would destroy the product's position.
+
+---
+
+## API surface
+
+| Method | Endpoint | Purpose |
+|---|---|---|
+| `GET` | `/api/health` | Diagnostics + which engine served what |
+| `POST` | `/api/transcribe` | Browser audio → text |
+| `POST` | `/api/chat` · `/api/reset` | Free chat |
+| `GET` | `/api/personas` | List interviewer personas |
+| `POST` | `/api/interview/resume` | Parse résumé (+ optional JD) and build questions |
+| `POST` | `/api/interview/jd` | Reground the questions in a JD |
+| `POST` | `/api/interview/persona` | Switch interviewer |
+| `POST` | `/api/interview/answer` | Score an answer, return the next question |
+| `POST` | `/api/interview/retry` | Re-answer a question; returns the attempt diff |
+| `GET` | `/api/interview/state` · `POST .../reset` | Session state / reset |
+| `GET` | `/api/history` · `/export` · `/import` · `/clear` · `/session/{id}` | Local practice history |
+| `GET` | `/api/eval/error-bars` | Published validation (read-only) |
+
+---
+
+## Sources
+
+Krippendorff's alpha · [Rating Roulette (arXiv 2510.27106)](https://arxiv.org/html/2510.27106) ·
+[EU AI Act Article 5](https://artificialintelligenceact.eu/article/5/) ·
+[Maindidze et al. 2025, accent bias](https://onlinelibrary.wiley.com/doi/10.1111/ijsa.12519) ·
+[Scribe and Prejudice? (Ada Lovelace Institute)](https://www.adalovelaceinstitute.org/report/scribe-and-prejudice/) ·
+[Kell et al. 2017, BARS](https://onlinelibrary.wiley.com/doi/full/10.1002/ets2.12152) ·
+[Järvilehto et al. 2026](https://pmc.ncbi.nlm.nih.gov/articles/PMC12865673/) ·
+[Groq data retention](https://console.groq.com/docs/your-data) ·
+[Latimier et al. 2021](http://www.lscp.net/persons/ramus/docs/EPR20.pdf) ·
+[Corral et al. 2025](https://www.sciencedirect.com/science/article/pii/S0959475225001434)
+
+Built for **IEEE Computer Society Bangalore Chapter — Girl Geeks 2026**, official use case
+*"AI-Powered Resume & Interview Coach"*.

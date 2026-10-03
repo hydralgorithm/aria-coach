@@ -41,12 +41,21 @@ def _print_report(report: dict) -> None:
             f"    {row['dimension']:<22} vs {row['feature']:<16} "
             f"rho={_fmt(row['rho'], 2)} (n={row['n']})  {row['verdict']}"
         )
+    disc = report.get("discrimination")
+    if disc:
+        print(
+            f"  discrimination (can Aria tell weak from strong?): "
+            f"AUC={_fmt(disc['auc'], 2)} "
+            f"weak mean={_fmt(disc['mean_weak'], 1)} vs strong mean="
+            f"{_fmt(disc['mean_strong'], 1)}"
+        )
     judge = report.get("independent_judge")
     if judge:
         overall = judge["overall"]
         print(
             f"  independent judge ({judge['model']}): kappa={_fmt(overall['kappa'])} "
             f"alpha={_fmt(overall['alpha'])} MAE={_fmt(overall['mae'], 2)} "
+            f"level delta={_fmt(overall.get('mean_level_delta'), 1)} "
             f"({judge['answers']} answers)"
         )
     else:
@@ -85,6 +94,11 @@ def main(argv: list[str] | None = None) -> int:
                 "why": "",
                 "competency": answer.get("competency", ""),
             }
+            if not args.reset and store.eval_run_count(
+                int(answer["id"]), "aria"
+            ) >= args.repeats:
+                print(f"  answer {answer['id']:>2} already scored - skipping")
+                continue
             store.clear_eval_runs_for(int(answer["id"]), "aria")
             for run in range(1, args.repeats + 1):
                 record = coach._score_question(question, answer["answer"])
@@ -115,6 +129,9 @@ def main(argv: list[str] | None = None) -> int:
         if args.reset:
             store.clear_aria_runs(source=model)
         for answer in eval_set["answers"]:
+            if not args.reset and store.eval_run_count(int(answer["id"]), model) >= 1:
+                print(f"  answer {answer['id']:>2} already judged - skipping")
+                continue
             store.clear_eval_runs_for(int(answer["id"]), model)
             result = errorbars.judge_scores(
                 answer["question"], answer["answer"], model
