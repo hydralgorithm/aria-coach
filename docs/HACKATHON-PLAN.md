@@ -722,3 +722,47 @@ imports clean. Temp DB removed.
 **Kept deliberately:** the demo beat. "Aria shows you what the machine actually received" is still
 literally true, and a misheard word can still be fixed in front of a judge — it just no longer
 interrupts the conversation to do it.
+
+### Adversarial review — judge-prep panel (2026-10-03)
+
+Ran a three-lens adversarial panel (strict judge / domain expert / HR) over the whole product and
+recorded the debate plus the chosen answer per question in **`docs/qanda.md`** (22 questions, two
+rounds). Round 1 probed validation, privacy, security and the closer; round 2 probed free chat and
+the persona system. The point is to reach the *smallest defensible* claim before a judge forces us
+to it, and to keep the lines we would never say in one place.
+
+**The panel found more in our own code than we expected:**
+
+- **Persona conditioning the score prompt (highest severity).** `SCORE_SYSTEM` contains
+  `"The interviewer personality for this session is {brief}"` (`coach.py:435`) and `score_answer`
+  fills it with the active persona, while the comment at `coach.py:806` claims *"the same answer
+  scores the same for every interviewer"*. We removed `score_bias` in step 1 — the arithmetic — but
+  not the prompt, so the claim was half-implemented.
+- **Measured it instead of arguing.** Same answer, five personas, repeated runs: between-persona
+  spread of means 9.5 points on a weak answer, 4.7 on a strong one, against within-persona
+  run-to-run spread of up to 12 at n=2. **A null result** — which means we cannot currently support
+  the persona-independence claim at all. Resolution: make it true *by construction* by removing
+  the brief from the scoring prompt (persona keeps shaping questions + TTS voice), which is
+  stronger than any measurement at any n. Not yet applied — scoring behaviour change, flagged.
+- **`brain._history` is never trimmed.** Free chat resends the whole conversation every turn;
+  `reset_history()` is only called from `/api/reset`. Long sessions slow down, then 502 on context
+  length with a generic error.
+- **`brain.transcribe` hardcodes `language="en"`**, forcing the target language instead of
+  detecting it — the wrong default for exactly the Hindi-English code-switching this audience
+  brings. Round 1's Q9 answer was written without knowing this line existed.
+- **Free chat can be talked into producing a number.** "Aria never invents a number" is structural
+  in the interview path (we sum the breakdown, we prefix the spoken line) but has no such guard in
+  free chat.
+- **The Stress Interviewer fabricates résumé claims**, which breaks "never presents invented
+  content as fact" *inside* the interview, where the candidate cannot check it.
+- **A 429 rate-limit fallback to the local 3B scored a strong answer 70 against 94/96 on Groq**
+  (n=1, illustrative). Round 1's "the offline path is degraded" is now ~25 points, not a vibe.
+- **`docs/eval/eval_set.json` was self-contradictory**: its `notes` still promised human raters
+  (none were collected) and claimed the `quality` field was *"never used in the statistics"*, while
+  `errorbars.py:257-258` computes the discrimination AUC from exactly those labels. Corrected; the
+  note now states the circularity outright. Published numbers unchanged.
+
+No application behaviour was changed by this task, so build/lint/face-metrics are unchanged. The
+persona-in-the-scoring-prompt fix is deliberately left unapplied: it changes scoring behaviour, so
+it needs its own decision and its own verification run.
+

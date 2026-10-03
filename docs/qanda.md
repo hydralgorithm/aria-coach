@@ -455,8 +455,8 @@ Cheapest credibility available: say these before the panel does.
   **false**: `backend/errorbars.py:257-258` computes the discrimination AUC from exactly those
   labels. Both corrected on 2026-10-03; the note now states the circularity outright. The panel
   caught it, which is the argument for running this exercise before the judges do.
-
 ---
+
 ---
 
 # Round 2 — the panel returns: free chat and the persona system
@@ -475,16 +475,16 @@ repeated runs.*
 | weak ("team launched a feature") | 16.0 | 14.5 | 10.0 | 10.0 | 6.5 | **9.5** (n=2 each, all Groq) |
 | strong (checkout migration, quantified) | 95.0 | not reached | 94.3 | not reached | 90.3 | **4.7** (n=3 each) |
 
-Within-persona run-to-run spread on the weak answer was 2–12 points. So the between-persona
-spread (9.5) is **the same order as the within-persona noise** (up to 12) at n=2.
+Within-persona run-to-run spread on the weak answer was 2–12 points, so the between-persona spread
+(9.5) is **the same order as the within-persona noise** (up to 12) at n=2.
 
 **Read honestly: this probe does not establish persona bias, and it does not establish
 persona-independence either.** n=2–3 is far too small. What it does establish is that we are
 currently *unable to support* the fairness claim we make in a code comment. That is a finding.
 
-A third, unplanned observation: one run hit a Groq **429 rate limit** and silently fell back to
-the local 3B model, which scored the same strong answer **70 against 94/96 on the cloud** (n=1,
-illustrative only, not a statistic). This turns Round 1's Q11 hand-wave — "the offline path is
+A third, unplanned observation: one run hit a Groq **429 rate limit** and silently fell back to the
+local 3B model, which scored the same strong answer **70 against 94/96 on the cloud** (n=1,
+illustrative only, not a statistic). That turns Round 1's Q11 hand-wave — "the offline path is
 degraded" — into a number: on a strong answer the fallback was ~25 points lower.
 
 ---
@@ -499,28 +499,28 @@ ask a follow-up most of the time, never use markdown"* — with **no résumé, n
 no evidence verification**. And the giveaway that it is a different product: `persona_voice()` is
 applied to every interview TTS call in `server.py` (lines 321–439) and to **none** of the chat
 calls. Same app, different assistant, different voice. J's take: not a bug, a missed opportunity —
-but if you don't name the difference deliberately, a judge will read it as a thin patch. E's
-defence: free chat is the zero-friction on-ramp; it exists so a nervous candidate can talk *before*
-committing to an interview. H is unimpressed and, unusually, agrees with J — her objection is
-commercial, not technical.
+but if you don't name the difference deliberately, a judge reads it as a thin patch. E's defence:
+free chat is the zero-friction on-ramp, so a nervous candidate can talk *before* committing to an
+interview. H is unimpressed and, unusually, agrees with J — her objection is commercial, not
+technical.
 
 **Rejected**
 - ❌ "Free chat is the same coach in a different mode." — It isn't. Same surface, different product.
-- ❌ "It's a thin wrapper around Groq." — Also unfair: it's a *deliberate* thin wrapper, with a
+- ❌ "It's a thin wrapper around Groq." — Also unfair: it's a *deliberate* thin wrapper with a
   specific job. Say what the job is.
 
 **FINAL ANSWER**
 
-> "Free chat is a different, simpler thing on purpose, and we'll name it rather than let you
-> assume it's the same coach. It is a low-friction warm-up: a short, spoken-style voice coach you
-> can talk to before you commit to a scored interview. It has no résumé, no rubric and no
-> scorecard — it's conversational rehearsal.
+> "Free chat is a different, simpler thing on purpose, and we'll name it rather than let you assume
+> it's the same coach. It is a low-friction warm-up: a short, spoken-style voice coach you can talk
+> to before you commit to a scored interview. It has no résumé, no rubric and no scorecard — it's
+> conversational rehearsal.
 >
 > Everything we actually claim is on the interview side: the scorecard, the verbatim quote
-> verification, the transcript you can correct, the retry diff. We didn't want free chat to inherit
-> a 60/100 score the candidate can't inspect, so it deliberately doesn't have one. What we should
-> have done is make that boundary visible in the UI rather than expecting you to notice the
-> different voice."
+> verification, the transcript you can correct, the retry diff. We didn't want free chat to hand the
+> candidate a 60/100 they can't inspect, so it deliberately doesn't have one. What we should have
+> done is make that boundary visible in the UI rather than expecting you to notice the different
+> voice."
 
 ---
 
@@ -534,16 +534,16 @@ the model cannot choose its own score. In free chat there is no such prefix, no 
 confident, entirely unverified number from the same product. J: "Your guarantee is a property of
 one code path, and you market it as a property of the product." H's version is worse: "A recruiter
 screenshots the free-chat number. Which number do you stand behind?" E's counter, which the panel
-accepts: the *promise* was always about the scorecard, and the scorecard is where the guarantee
-lives — but the honest fix is to stop the number from existing in free chat, not to explain it
-after the fact.
+accepts: the promise was always about the scorecard, and the scorecard is where the guarantee lives
+— but the honest fix is to stop the number from existing in free chat, not to explain it after the
+fact.
 
 **FINAL ANSWER**
 
 > "That one stings because it's true as stated, and the precise version matters. The guarantee —
 > 'Aria never invents a number' — is a property of the *scoring* path, and it is structural there:
-> the model returns five dimension points, we sum them ourselves, and the spoken line is prefixed
-> by our own code, so the model literally cannot choose or alter the score.
+> the model returns five dimension points, we sum them ourselves, and the spoken line is prefixed by
+> our own code, so the model literally cannot choose or alter the score.
 >
 > In free chat there is no scorecard, and if a candidate asks for a number they will get a
 > conversational one that carries none of that. So the honest scoping is: the guarantee attaches to
@@ -561,28 +561,244 @@ after the fact.
 interviewer, so retries are comparable."* J reads both lines and the gap between them: the
 arithmetic is persona-free, yes — and the *evidence fed into the arithmetic* is not. E runs the
 probe above and refuses to let either side claim victory: the 9.5-point between-persona spread is
-the same order as the 12-point within-persona spread, so n=2 proves nothing. H asks the question
-that reframes the whole thing: "Which answer do you actually want to give? 'Probably not' is not
-an answer — either make it true or stop claiming it."
+the same order as the 12-point within-persona spread, so n=2 proves nothing. H reframes the whole
+thing: "Which answer do you actually want to give? 'Probably not' is not an answer — either make it
+true or stop claiming it."
 
-**This is the one place where the panel reached consensus on a code change rather than a
-line to say.** Removing the persona brief from the scoring prompt makes persona-independence true
-*by construction*, which is a stronger guarantee than any measurement at any n. The persona's job
-is to shape the questions and the tone — which it already does, via `question_style` and the TTS
-voice — not the rubric. J: "You don't need a study to prove a property you can just have."
+**This is the one place where the panel reached consensus on a code change rather than a line to
+say.** Removing the persona brief from the scoring prompt makes persona-independence true *by
+construction*, which is a stronger guarantee than any measurement at any n. The persona's job is to
+shape the questions and the tone — which it already does, via `question_style` and the TTS voice —
+not the rubric. J: "You don't need a study to prove a property you can just have."
 
 **Rejected**
-- ❌ "No persona bias — we removed `score_bias` in step 1." — We removed the *arithmetic*. The
-  prompt is still conditioned. Half a fix.
+- ❌ "No persona bias — we removed `score_bias` in step 1." — We removed the *arithmetic*. The prompt
+  is still conditioned. Half a fix.
 - ❌ "The probe shows a 9.5-point persona effect." — Overclaim; n=2, and it's within noise.
 - ❌ "The probe shows no persona effect." — Equally overclaim. We don't know.
 
 **FINAL ANSWER**
 
-> "You've found a real gap between our code and our claim. There is no persona arithmetic — the
-> score is the sum of five dimension points and nothing is added per persona. But the interviewer's
-> brief *is* inside the scoring prompt, and that conditions the evidence, not just the maths.
+> "You've found a real gap between our code and our claim. There is no persona arithmetic — the score
+> is the sum of five dimension points and nothing is added per persona. But the interviewer's brief
+> *is* inside the scoring prompt, and that conditions the evidence, not just the maths.
 >
 > We probed it rather than arguing about it: the same answer, five personas, repeated runs. The
 > between-persona spread of means was 9.5 points on a weak answer and 4.7 on a strong one — but
-> run-to-run sp
+> run-to-run spread within a single persona reached 12, so at n=2 that's a null result. We can't
+> tell you it's biased and we can't tell you it isn't.
+>
+> Which is exactly why we're fixing it rather than measuring it: the persona should shape the
+> questions and the voice, never the rubric. Removing it from the scoring prompt makes 'the same
+> answer scores the same for every interviewer' true by construction, and we'd rather have a
+> guarantee than a study."
+
+---
+
+## Q16. "Your Stress Interviewer *invents facts about my resume*."
+
+**The fight.** H reacts as a candidate, and she is the one who objects. The `crook` brief
+instructs the model to fabricate resume claims and offer false premises — "we plant small
+contradictions between their resume and their answers". Every tool whose adversarial mode *asserts
+false things about you* is a consent problem, and consent is exactly what this product trades on.
+E's technical objection is sharper: the fabrication is **unverified**. The whole moat is that Aria
+never presents invented content as fact — every feedback quote is mechanically checked against the
+transcript. The stress persona breaks that guarantee inside the *interview*, where a hallucinated
+contradiction is indistinguishable from a real one, and the brief only promises to explain the
+traps afterwards. J is the most severe: in front of an IEEE panel, a demo where the bot lies about
+your own résumé to watch you squirm is a genuinely bad look, however well intentioned. E notes the
+mitigation that exists — the traps are explained in the final feedback — and H's verdict is that
+this is the argument for the whole thing *if the candidate is choosing it*, and against it if it is
+the default or the demo's most memorable moment.
+
+**FINAL ANSWER**
+
+> "That's a fair hit and it's the sharpest ethical question in the product. The Stress Interviewer
+> does introduce false premises and traps, and it can invent a gap in your résumé. We kept it behind
+> an explicit 'advanced' label, it is opt-in, and the persona drops the act in the feedback and
+> explains what each trap was testing.
+>
+> But your underlying point stands: we hold ourselves to 'Aria never presents invented content as
+> fact' — every scorecard quote is mechanically verified against your own words — and inside the
+> interview a fabricated contradiction cannot be verified by you, because it isn't true. The
+> principle that makes the product trustworthy has to apply to the traps too, not just the
+> scorecard. The version of this we should ship is traps grounded in *your* resume lines, where the
+> contradiction is one you can check."---
+
+## Q17. "Five personas, one of them 'adversarial', pitched at a women's tech event. Did you think about how that lands?"
+
+**The fight.** H raises it as a direct, uncomfortable question and does not soften it: the room this
+is pitched into is disproportionately women and non-dominant-speaker candidates, the project is
+built on the claim that accents get misjudged, and the most memorable persona is one whose selling
+point is traps and false premises. E's measured response: the persona is opt-in, labelled, and covers
+a real preparation need — candidates do get stress rounds, and practising the response is
+legitimate. J rejects the framing trap on both sides: neither "adversarial practice is inherently
+discriminatory" nor "it's just a game, relax" is a good answer. H's demand: don't make the
+adversarial persona the demo's climax, and be able to say out loud that a candidate who never wants
+to be trapped has a first-class path through the product — which they do, in one click, by never
+selecting it.
+
+**FINAL ANSWER**
+
+> "We thought about it, and the design answer is opt-in and never automatic. There is no
+> 'adversarial by default' path; the structured panel is the first option, the stress round is
+> labelled advanced, and a candidate who never wants to be challenged simply never selects it.
+> Nothing in the scoring reflects the persona either — that's the change we're making.
+>
+> We're also deliberate about the demo: we won't make the stress persona the climax, because the
+> thing worth showing in a room like this is a candidate getting precise, evidence-cited feedback
+> they can verify — not the bot tricking them. A trap is fair game in a practice tool the person
+> asked for; it is not fair game as an ambush, and we don't build ambushes."
+
+---
+
+## Q18. "Whisper is hardcoded to `language='en'`. Your audience code-switches. What does that do to your headline fairness claim?"
+
+**The fight.** E finds it in one grep and it is the sharpest technical finding of the round.
+`brain.transcribe` passes `language="en"` to the Groq Whisper endpoint, which forces the recogniser
+to commit to English rather than detect it. For Hindi-English code-switching a forced target
+language is a known source of degradation — the model maps non-target speech onto the nearest
+English tokens, which is precisely the "misheard accent" failure the product exists to correct. J:
+"Your Round 1 answer to Q9 was careful. This line makes the careful version too generous." H finds
+the asymmetry that makes it a fairness issue rather than a bug: the candidates most likely to be
+damaged by a forced-English setting are the ones in this room, and they are the ones least able to
+hear the damage. E notes the honest defence, which is real: the product's answer to a bad transcript
+is that the candidate *sees it and re-scores* — the correction UI is the safety net that makes a
+mis-hearing recoverable. But that is a mitigation, not a fix.
+
+**FINAL ANSWER**
+
+> "We force English in the transcription call, and for a room full of Hindi-English speakers that is
+> the wrong default — forcing a target language makes the recogniser map non-target speech onto the
+> nearest English tokens, which is the exact failure this product exists to catch. It should be
+> auto-detected, and honestly it probably should have been from the start.
+>
+> What limits the damage today is the design rather than the setting: the transcript is always shown
+> on the scorecard, editable, with a re-score. A mis-heard answer is *visible* and correctable, which
+> is why a forced-language misfire is recoverable here when it would be invisible in most interview
+> tools. But visible-and-correctable is a safety net, not a fix, and the fix is removing the
+> constraint."
+
+---
+
+## Q19. "Personas change the questions. So one candidate gets a gentle interview and another gets a firing squad, and both are scored on the same 100."
+
+**The fight.** E separates two things the panel keeps collapsing. Persona changes *which questions
+are asked* (`question_style`) and *how* they're asked (the brief) — so candidates who pick different
+personas face different question sets, and some sets are genuinely harder. That makes Aria scores
+comparable *within* a session, where every candidate faces the same rubric and the same generated
+questions, and **not** across candidates who chose differently. H's practical concern: "if two of my
+engineers practise and one picks The Bar-Raiser, the two scores aren't a fair comparison — and
+someone will absolutely compare them." J wants the limitation stated in the product rather than the
+pitch. E adds what makes this manageable: the scorecard dimensions, maxima and evidence rule are
+fixed across personas; only the questioning style moves, and resume-derived JD coverage constrains
+the topic mix regardless of persona.
+
+**FINAL ANSWER**
+
+> "Correct, and we should be precise about where the limit is. The persona changes which questions get
+> asked and how they're pressed — the structured panel and the stress round are genuinely different
+> interviews. So Aria scores are comparable *within* an interview, where the candidate faces one
+> rubric, one question set and one set of maxima, and they are **not** a fair cross-candidate
+> comparison when two people chose different interviewers.
+>
+> Two things hold regardless of persona: the five dimensions and their maxima are fixed, and after
+> this round the persona won't reach the scoring prompt at all. A harder questioning style may elicit
+> weaker-sounding answers — that's a real effect and worth knowing — but the rubric grading them is
+> now persona-free. Pick your interviewer, not your grade."
+
+---
+
+## Q20. "Your free-chat history is a Python list that never gets trimmed. What happens at turn 40?"
+
+**The fight.** E finds it in two greps: `brain._history` is appended on every turn and sent in full
+on every request, with **no trimming anywhere in the codebase** — `reset_history()` is called only
+from `/api/reset`. J's verdict is professional rather than fatal: it degrades rather than breaks,
+and a judge will never reach turn 40 in a five-minute demo. But H reads the user impact precisely: a
+candidate in a long free-chat session gets progressively slower, more expensive calls, then a **502**
+("LLM failed") from a provider context-length error, surfaced as a generic failure with no
+suggestion to start a new conversation. E's judgement: a real bug with a small, well-understood fix
+— keep the last N turns — which should not ship after we have found it.
+
+**FINAL ANSWER**
+
+> "That's a real bug and it's ours. Free chat appends every turn to one in-memory list and sends the
+> whole thing on every call, with no trimming — the only reset is the New Session button. In a short
+> demo it never shows. In a real long session, calls get slower, then fail when the provider rejects
+> the context length, and the user sees a generic error instead of being told to start a new
+> conversation.
+>
+> The fix is small and obvious: keep the last N turns and say so when older history is dropped.
+> Worth noting how we found it — it came out of this panel review, not out of using the product,
+> which is its own argument for why adversarial review of your own code beats a happy-path demo."
+
+---
+
+## Q21. "You claim Aria never invents a number. But the sentence next to the number is unverified."
+
+**The fight.** E finds the precise boundary. `spoken_feedback = f"Score {score} out of 100.
+{spoken_body}"` — the *number* is ours, prefixed by our code, so it cannot be fabricated or
+contradicted. The *body* is raw model text that passed through no verification, which means Aria
+can say "that was a strong answer with clear impact" directly underneath a 22/100. J wants the
+promise narrowed to exactly what the code guarantees. H pushes further: the same issue applies to
+`verdict`, which is unverified free text sitting directly above the score. E notes the asymmetry
+that makes the product defensible anyway: the *points* are structured, bounded by `_evidence()`
+against verbatim quotes, and derived from the transcript — while the surrounding prose is
+explicitly the model's voice, not a datum.
+
+**FINAL ANSWER**
+
+> "Precisely: the number is ours. The model returns five dimension points, we sum them, and our own
+> code writes the sentence 'Score N out of 100' — the model never chooses or alters the score, and
+> every point under it is quote-verified against your own words.
+>
+> The prose around it — the verdict line and the spoken feedback — is the model's voice, and we do
+> not verify that. So the honest form of the claim is: *the score is computed, bounded and
+> evidence-grounded; the wording around it is generated.* Those can disagree, and if they ever do,
+> the score is the one that's auditable. That's a narrower promise than the one on our homepage, and
+> it's the one the code actually keeps."
+
+---
+
+## Q22. "Why should a candidate choose their own interviewer? That's the candidate grading the examiner."
+
+**The fight.** H raises this as an equity objection with a neat inversion: we spent a whole round
+insisting the candidate must never rate Aria, and then we hand them a five-way choice of interviewer
+difficulty. E's defence is that this is standard in practice tools — mock interviews offer panel
+styles precisely because pressure tolerance differs, and a candidate practising a bar-raiser is doing
+exactly what the bar-raiser will do to them. J adds the sharp point: the *preparation* is the
+product, and letting someone rehearse the specific pressure they will face is the whole point of a
+rehearsal tool; forcing one fixed mode would be the paternalistic version. H's residual concern,
+which the panel agrees is legitimate: the choice must never become a way to shop for a flattering
+score.
+
+**FINAL ANSWER**
+
+> "Choosing the interviewer is choosing the *rehearsal*, not the grade — and rehearsing the exact
+> pressure you're likely to face is the point of the product. A candidate who knows they'll meet a
+> bar-raiser should practise against a bar-raiser. Forcing one fixed mode would be the paternalistic
+> option.
+>
+> Your real concern is sharper and we agree with it: the choice must never become shopping for a
+> flattering number. Two things keep it honest. The scoring is persona-free — same rubric, same
+> maxima, same evidence rule, whichever interviewer you pick — and the app tells you which
+> environment you're rehearsing for, so a gentle session is a deliberate choice you can see, not a
+> default that flatters you."
+
+---
+
+## Round 2 outputs: what changed, not just what to say
+
+| # | Finding | Severity | Status |
+|---|---|---|---|
+| 1 | Persona brief is inside `SCORE_SYSTEM` (`coach.py:435`) — contradicts the "same answer, same score" comment at `coach.py:806` | **High** — fairness claim in a fairness product | Fix: remove `{brief}` from the scoring prompt (1 line) |
+| 2 | Comment at `coach.py:806` asserts persona-independence the code does not implement | **High** — a judge reading the repo finds this | Fix together with #1 |
+| 3 | `brain._history` never trimmed; long free chat degrades then 502s | Medium | Fix: keep last N turns, tell the user |
+| 4 | `language="en"` hardcoded in `brain.transcribe` — wrong default for code-switching | Medium | Fix: allow auto-detect |
+| 5 | Free chat can be prompted into an unverified score, undercutting the moat | Medium | Fix: no numbers outside the scorecard |
+| 6 | Stress persona fabricates résumé claims — unverified invented content inside the interview | Medium | Fix: ground traps in real résumé lines |
+| 7 | Scores not comparable across candidates who chose different personas | Low | Document, do not fix |
+
+Items 1–2 are the same one-line change and the highest-value item in either round: it converts a
+*claim* about persona-independence into a *guarantee*. None of these change the published error
+bars, which were computed under a single persona and are unaffected by items 3–7.
