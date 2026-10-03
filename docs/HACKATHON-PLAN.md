@@ -619,4 +619,31 @@ evidence and ordering rather than a lone uncalibrated number.
 stubbed models and then against **real model runs** (24 answers × 2–3 Groq runs + 24 local judge
 runs); `status` CLI; schema migration for an older local DB; build OK; lint at baseline (537/3).
 
-**Remainder**: the final documentation pass (README / SETUP / requirements), per the user.
+### Final documentation pass ✅ (2026-10-03)
+
+- **`README.md`** rewritten to be presentation-worthy: the problem (three cited defects),
+  the positioning/moat, a feature walkthrough of everything built in steps 1–8, the
+  **published validation table**, the honest local/cloud split table, a copy-pasteable quick
+  start, architecture + module-responsibility map, project layout, verification commands,
+  the privacy/legal stance (EU AI Act Art. 5(1)(f), personas don't move the number, not a
+  hiring prediction, not for live interviews), and the full API surface.
+- **`SETUP.md`** rebuilt for a human *or an AI agent* from a fresh clone: ordered steps each
+  with a **Verify** command and expected output, a "stop if Verify fails" rule, per-platform
+  commands (winget / brew / apt), the Python-3.12-strict + venv-interpreter warning, the
+  ~353 MB Kokoro download, an explicit note that the camera model and MediaPipe WASM ship with
+  the repo, optional Tesseract and Ollama, the validation-regeneration step, a whole-project
+  verification section, a first-run feature tour, and troubleshooting for every failure mode
+  seen in this build (missing `ffmpeg`, Groq model errors, Windows DLL conflicts, a dropped
+  component import that broke `tsc`, an empty validation panel).
+- **`requirements.txt`** reconciled against an AST audit of every import in `backend/`,
+  `main.py` and `scripts/`: **removed `pypdf` and `loguru` (never imported)**, documented
+  `edge-tts` as an optional extra (it is a conditional TTS fallback, not a hard dep), and
+  stated explicitly why SciPy/pandas/sklearn are deliberately *not* dependencies.
+
+**Verification**: every Verify command in SETUP was executed on this machine — deps import,
+`.env` key detection, Kokoro synthesis (~2s of audio at 24 kHz), `npm run build`, `npm run lint`
+(537/3), `face-metrics-test.mjs` (14/14), backend imports. A live Uvicorn instance was started
+and confirmed serving `/api/health` (`kokoro_onnx: true`, `groq:qwen/qwen3.8-27b`),
+`/api/eval/error-bars` (`available`, `ready`, AUC 1.0) and `/api/personas` (all five).
+
+**The plan is now fully implemented** — steps 1–8, all with a published log entry.
