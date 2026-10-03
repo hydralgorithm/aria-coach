@@ -22,7 +22,7 @@ import DebugPanel from "@/components/DebugPanel"
 import InterviewView from "@/components/InterviewView"
 import CameraSetup from "@/components/CameraSetup"
 import WhereItRuns from "@/components/WhereItRuns"
-// Practice history & progress panel
+// Navbar panels: practice history & published validation
 import ProgressPanel from "@/components/ProgressPanel"
 import ValidationPanel from "@/components/ValidationPanel"
 import { useVoice, type ChatStage } from "@/hooks/useVoice"
@@ -300,7 +300,7 @@ export default function App() {
       {/* ── Header ── */}
       <header className="relative z-20 flex flex-wrap items-center justify-between gap-3 border-b border-white/[0.06] bg-ink-950/60 px-4 sm:px-6 py-2.5 backdrop-blur-xl shrink-0">
         {/* Brand */}
-        <div className="flex items-center gap-2.5">
+        <div className="flex items-center gap-2.5 shrink-0">
           <AvatarOrb color="violet" size="sm" shape="circle" blinking />
           <div>
             <div className="flex items-center gap-1.5">
@@ -314,8 +314,8 @@ export default function App() {
           </div>
         </div>
 
-        {/* Mode tabs */}
-        <div className="order-3 sm:order-2 flex mx-auto sm:mx-0 rounded-full border border-white/[0.08] bg-white/[0.04] p-0.5 backdrop-blur-xl shadow-lg shadow-black/20">
+        {/* Mode tabs - strictly centered relative to the viewport & hero section */}
+        <div className="order-3 sm:order-2 flex mx-auto sm:mx-0 sm:absolute sm:left-1/2 sm:top-1/2 sm:-translate-x-1/2 sm:-translate-y-1/2 rounded-full border border-white/[0.08] bg-white/[0.04] p-0.5 backdrop-blur-xl shadow-lg shadow-black/20 z-10">
           {(
             [
               ["chat", "Free chat", MessagesSquare],
@@ -343,7 +343,7 @@ export default function App() {
         </div>
 
         {/* Actions */}
-        <div className="order-2 sm:order-3 flex items-center gap-1.5">
+        <div className="order-2 sm:order-3 flex items-center gap-1.5 shrink-0 ml-auto sm:ml-0">
           <ProgressPanel />
           <ValidationPanel />
           <WhereItRuns />

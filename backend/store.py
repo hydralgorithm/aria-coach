@@ -78,12 +78,32 @@ def _connect() -> sqlite3.Connection:
     return conn
 
 
+def _migrate(conn: sqlite3.Connection) -> None:
+    """Bring an older local DB up to the current schema.
+
+    `CREATE TABLE IF NOT EXISTS` never alters an existing table, so a column
+    added later (the eval `source`) has to be patched in explicitly.
+    """
+    columns = {
+        row["name"] for row in conn.execute("PRAGMA table_info(eval_runs)").fetchall()
+    }
+    if columns and "source" not in columns:
+        conn.execute(
+            "ALTER TABLE eval_runs ADD COLUMN source TEXT NOT NULL DEFAULT 'aria'"
+        )
+    # an earlier revision of the eval schema; superseded and never written to
+    conn.execute("DROP TABLE IF EXISTS eval_ratings")
+
+
 def _ensure() -> None:
     global _ready
     if _ready:
         return
     conn = _connect()
     try:
+        # migrate first: the schema script creates an index on a column that an
+        # older DB may not have yet
+        _migrate(conn)
         conn.executescript(_SCHEMA)
         conn.commit()
     finally:
@@ -357,6 +377,15 @@ def aria_runs(source: str | None = None) -> list[dict]:
             item["breakdown"] = {}
         out.append(item)
     return out
+
+
+def clear_eval_runs_for(answer_id: int, source: str = "aria") -> None:
+    """Drop one answer's runs for one rater, so re-running the eval is idempotent."""
+    with _db() as conn:
+        conn.execute(
+            "DELETE FROM eval_runs WHERE answer_id = ? AND source = ?",
+            (int(answer_id or 0), str(source or "aria")),
+        )
 
 
 def eval_sources() -> list[str]:

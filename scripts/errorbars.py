@@ -85,6 +85,7 @@ def main(argv: list[str] | None = None) -> int:
                 "why": "",
                 "competency": answer.get("competency", ""),
             }
+            store.clear_eval_runs_for(int(answer["id"]), "aria")
             for run in range(1, args.repeats + 1):
                 record = coach._score_question(question, answer["answer"])
                 engine = brain.LAST_ENGINE or engine
@@ -114,6 +115,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.reset:
             store.clear_aria_runs(source=model)
         for answer in eval_set["answers"]:
+            store.clear_eval_runs_for(int(answer["id"]), model)
             result = errorbars.judge_scores(
                 answer["question"], answer["answer"], model
             )
