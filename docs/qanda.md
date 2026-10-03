@@ -455,3 +455,134 @@ Cheapest credibility available: say these before the panel does.
   **false**: `backend/errorbars.py:257-258` computes the discrimination AUC from exactly those
   labels. Both corrected on 2026-10-03; the note now states the circularity outright. The panel
   caught it, which is the argument for running this exercise before the judges do.
+
+---
+---
+
+# Round 2 — the panel returns: free chat and the persona system
+
+Same three lenses, pointed at the two subsystems Round 1 never touched. Round 2 was more
+productive: **it found two real defects and one false claim in our own repo**, all recorded below
+with the evidence. Two of them are code changes we should make, not answers we should learn.
+
+**New evidence produced for this round** (2026-10-03, Groq, project-local temp DB, since deleted):
+
+*Probe: does the interviewer persona change the score? Identical answer text, five personas,
+repeated runs.*
+
+| Answer | standard | kind | crook | rapid | strict | between-persona spread of means |
+|---|---|---|---|---|---|---|
+| weak ("team launched a feature") | 16.0 | 14.5 | 10.0 | 10.0 | 6.5 | **9.5** (n=2 each, all Groq) |
+| strong (checkout migration, quantified) | 95.0 | not reached | 94.3 | not reached | 90.3 | **4.7** (n=3 each) |
+
+Within-persona run-to-run spread on the weak answer was 2–12 points. So the between-persona
+spread (9.5) is **the same order as the within-persona noise** (up to 12) at n=2.
+
+**Read honestly: this probe does not establish persona bias, and it does not establish
+persona-independence either.** n=2–3 is far too small. What it does establish is that we are
+currently *unable to support* the fairness claim we make in a code comment. That is a finding.
+
+A third, unplanned observation: one run hit a Groq **429 rate limit** and silently fell back to
+the local 3B model, which scored the same strong answer **70 against 94/96 on the cloud** (n=1,
+illustrative only, not a statistic). This turns Round 1's Q11 hand-wave — "the offline path is
+degraded" — into a number: on a strong answer the fallback was ~25 points lower.
+
+---
+
+## Q13. "Free chat has no persona and a different voice. So it's ChatGPT with a TTS layer."
+
+**The fight.** H opens from the buyer's chair: "You've spent a hackathon on a coach and half the
+surface area is a generic chat box. If a judge lands there first, that's the product they form an
+opinion of." E verifies the separation in the code and finds it stark: `/api/chat` calls
+`brain.chat()` with a 7-line `SYSTEM_PROMPT` — *"warm, witty voice coach… 1-3 spoken sentences,
+ask a follow-up most of the time, never use markdown"* — with **no résumé, no rubric, no persona,
+no evidence verification**. And the giveaway that it is a different product: `persona_voice()` is
+applied to every interview TTS call in `server.py` (lines 321–439) and to **none** of the chat
+calls. Same app, different assistant, different voice. J's take: not a bug, a missed opportunity —
+but if you don't name the difference deliberately, a judge will read it as a thin patch. E's
+defence: free chat is the zero-friction on-ramp; it exists so a nervous candidate can talk *before*
+committing to an interview. H is unimpressed and, unusually, agrees with J — her objection is
+commercial, not technical.
+
+**Rejected**
+- ❌ "Free chat is the same coach in a different mode." — It isn't. Same surface, different product.
+- ❌ "It's a thin wrapper around Groq." — Also unfair: it's a *deliberate* thin wrapper, with a
+  specific job. Say what the job is.
+
+**FINAL ANSWER**
+
+> "Free chat is a different, simpler thing on purpose, and we'll name it rather than let you
+> assume it's the same coach. It is a low-friction warm-up: a short, spoken-style voice coach you
+> can talk to before you commit to a scored interview. It has no résumé, no rubric and no
+> scorecard — it's conversational rehearsal.
+>
+> Everything we actually claim is on the interview side: the scorecard, the verbatim quote
+> verification, the transcript you can correct, the retry diff. We didn't want free chat to inherit
+> a 60/100 score the candidate can't inspect, so it deliberately doesn't have one. What we should
+> have done is make that boundary visible in the UI rather than expecting you to notice the
+> different voice."
+
+---
+
+## Q14. "In free chat there's no verification layer. So 'Aria never invents a number' is false — just ask it for a score."
+
+**The fight.** E attacks the moat claim at its weakest joint. Our headline promise is "Aria never
+invents a number." In the interview path that is structurally true: the number is `sum(breakdown)`
+computed by us, and the spoken line is prefixed by us — `f"Score {score} out of 100. {body}"` — so
+the model cannot choose its own score. In free chat there is no such prefix, no JSON schema, no
+`_evidence()` verification. A candidate who says *"rate my answer out of 100"* gets a fluent,
+confident, entirely unverified number from the same product. J: "Your guarantee is a property of
+one code path, and you market it as a property of the product." H's version is worse: "A recruiter
+screenshots the free-chat number. Which number do you stand behind?" E's counter, which the panel
+accepts: the *promise* was always about the scorecard, and the scorecard is where the guarantee
+lives — but the honest fix is to stop the number from existing in free chat, not to explain it
+after the fact.
+
+**FINAL ANSWER**
+
+> "That one stings because it's true as stated, and the precise version matters. The guarantee —
+> 'Aria never invents a number' — is a property of the *scoring* path, and it is structural there:
+> the model returns five dimension points, we sum them ourselves, and the spoken line is prefixed
+> by our own code, so the model literally cannot choose or alter the score.
+>
+> In free chat there is no scorecard, and if a candidate asks for a number they will get a
+> conversational one that carries none of that. So the honest scoping is: the guarantee attaches to
+> the scorecard, not to every sentence Aria speaks. That's a UI boundary we should enforce rather
+> than a caveat we're relying on you to infer, and enforcing it is on the list."
+
+---
+
+## Q15. "You put the interviewer persona into the *scoring* prompt. Does who interviews you change your score?"
+
+**The fight.** The most damaging question of either round, and it came from reading one line.
+`coach.py:435` — `SCORE_SYSTEM` contains *"The interviewer personality for this session is
+{brief}"* — and `score_answer` fills that token with the active persona's brief. Meanwhile
+`coach.py:806` comments: *"No persona arithmetic: the same answer scores the same for every
+interviewer, so retries are comparable."* J reads both lines and the gap between them: the
+arithmetic is persona-free, yes — and the *evidence fed into the arithmetic* is not. E runs the
+probe above and refuses to let either side claim victory: the 9.5-point between-persona spread is
+the same order as the 12-point within-persona spread, so n=2 proves nothing. H asks the question
+that reframes the whole thing: "Which answer do you actually want to give? 'Probably not' is not
+an answer — either make it true or stop claiming it."
+
+**This is the one place where the panel reached consensus on a code change rather than a
+line to say.** Removing the persona brief from the scoring prompt makes persona-independence true
+*by construction*, which is a stronger guarantee than any measurement at any n. The persona's job
+is to shape the questions and the tone — which it already does, via `question_style` and the TTS
+voice — not the rubric. J: "You don't need a study to prove a property you can just have."
+
+**Rejected**
+- ❌ "No persona bias — we removed `score_bias` in step 1." — We removed the *arithmetic*. The
+  prompt is still conditioned. Half a fix.
+- ❌ "The probe shows a 9.5-point persona effect." — Overclaim; n=2, and it's within noise.
+- ❌ "The probe shows no persona effect." — Equally overclaim. We don't know.
+
+**FINAL ANSWER**
+
+> "You've found a real gap between our code and our claim. There is no persona arithmetic — the
+> score is the sum of five dimension points and nothing is added per persona. But the interviewer's
+> brief *is* inside the scoring prompt, and that conditions the evidence, not just the maths.
+>
+> We probed it rather than arguing about it: the same answer, five personas, repeated runs. The
+> between-persona spread of means was 9.5 points on a weak answer and 4.7 on a strong one — but
+> run-to-run sp
