@@ -1,0 +1,202 @@
+{
+  "schema": "aria.locality.v1",
+  "verified": "2026-10-05",
+  "how_verified": "server started with GROQ_API_KEY= (empty) and ARIA_OFFLINE=1; /api/health reported llm_primary=null; scripts/offline_journey.py completed resume->JD->analysis->interview->scoring->feedback->learning-plan->retry->progress with exit 0",
+  "modes": {
+    "cloud_default": "GROQ_API_KEY set, ARIA_OFFLINE unset — cloud text models, local STT only if cloud fails, local TTS always",
+    "local_first": "ARIA_OFFLINE=1 — cloud unreachable by construction; every task below runs on-device"
+  },
+  "tasks": [
+    {
+      "task": "resume_text_extraction",
+      "engine": "PyMuPDF + Tesseract OCR",
+      "local": "always",
+      "cloud": "never",
+      "code": "backend/parsing.py:extract_document",
+      "network_calls": 0,
+      "evidence": "offline_journey: resume upload 200 with no key"
+    },
+    {
+      "task": "ats_parse_audit",
+      "engine": "deterministic geometry + regex checks",
+      "local": "always",
+      "cloud": "never",
+      "code": "backend/parsing.py:audit_parse",
+      "network_calls": 0,
+      "evidence": "offline_journey: ATS parse audit offline (PASS)"
+    },
+    {
+      "task": "resume_structured_extraction",
+      "engine": "LLM with schema validation",
+      "local": "yes (Ollama llama3.2:3b)",
+      "cloud": "yes (Groq qwen3.8-27b) — default when key present",
+      "code": "backend/coach.py:load_resume -> _json_call",
+      "network_calls": 1,
+      "payload": "resume text only, no contact fields redacted; JSON schema enforced",
+      "evidence": "offline_journey: resume analysed in 27.6s offline, profile+structured returned"
+    },
+    {
+      "task": "jd_requirement_analysis",
+      "engine": "deterministic sentence split + keyword overlap",
+      "local": "always",
+      "cloud": "never",
+      "code": "backend/coach.py:_coverage",
+      "network_calls": 0,
+      "evidence": "offline_journey: coverage map built offline (4 requirements)"
+    },
+    {
+      "task": "resume_jd_matching",
+      "engine": "deterministic quote-verified evidence match (no embeddings)",
+      "local": "always",
+      "cloud": "never",
+      "code": "backend/coach.py:_coverage",
+      "network_calls": 0,
+      "evidence": "unit tests: TestCoverage"
+    },
+    {
+      "task": "claim_interrogation",
+      "engine": "regex claim extraction + probe templates",
+      "local": "always",
+      "cloud": "never",
+      "code": "backend/insights.py:extract_claims",
+      "network_calls": 0,
+      "evidence": "offline_journey: claim interrogator fired offline (3 claims)"
+    },
+    {
+      "task": "question_generation",
+      "engine": "LLM, seeded by deterministic planner",
+      "local": "yes (Ollama)",
+      "cloud": "yes (Groq) — default",
+      "code": "backend/coach.py:_make_questions",
+      "network_calls": 1,
+      "payload": "structured resume facts + JD focus lines + weak competencies",
+      "evidence": "offline_journey: 6 questions generated offline"
+    },
+    {
+      "task": "interview_answer_scoring",
+      "engine": "LLM under a question-type-specific rubric + deterministic guards",
+      "local": "yes (Ollama)",
+      "cloud": "yes (Groq) — default",
+      "code": "backend/coach.py:_score_question, TECH_DIMENSIONS/BEHAVIORAL_DIMENSIONS",
+      "network_calls": 1,
+      "payload": "the answer transcript, the question, and the rubric; resume evidence quotes only",
+      "evidence": "offline_journey: 60/100 via engine=ollama"
+    },
+    {
+      "task": "truth_guard_number_check",
+      "engine": "deterministic (regex set difference)",
+      "local": "always",
+      "cloud": "never",
+      "code": "backend/coach.py:_truth_guard",
+      "network_calls": 0,
+      "evidence": "e2e_journey: 'truth guard: no fabricated numbers in revision' (PASS)"
+    },
+    {
+      "task": "communication_metrics",
+      "engine": "deterministic (word counts, fillers, restarts, duration)",
+      "local": "always",
+      "cloud": "never",
+      "code": "backend/speech.py:analyse",
+      "network_calls": 0,
+      "evidence": "offline_journey: speech metrics computed offline (67 words, 118 wpm)"
+    },
+    {
+      "task": "technical_vs_behavioral_rubric_selection",
+      "engine": "deterministic (question type)",
+      "local": "always",
+      "cloud": "never",
+      "code": "backend/coach.py:_score_question",
+      "network_calls": 0,
+      "evidence": "e2e_journey: rubric=technical for the Redis question, behavioral for STAR"
+    },
+    {
+      "task": "learning_plan_generation",
+      "engine": "deterministic gap->item mapping over a curated resource catalog",
+      "local": "always",
+      "cloud": "never (the model is never allowed to invent a URL)",
+      "code": "backend/insights.py:build_learning_plan + backend/resources.py",
+      "network_calls": 0,
+      "evidence": "offline_journey: learning plan built offline (2 items)"
+    },
+    {
+      "task": "readiness_profile",
+      "engine": "deterministic aggregation of stored components",
+      "local": "always",
+      "cloud": "never",
+      "code": "backend/insights.py:build_readiness",
+      "network_calls": 0,
+      "evidence": "offline_journey: readiness built offline"
+    },
+    {
+      "task": "progress_measurement",
+      "engine": "SQLite aggregation (arithmetic over stored attempts)",
+      "local": "always",
+      "cloud": "never",
+      "code": "backend/store.py + /api/progress",
+      "network_calls": 0,
+      "evidence": "offline_journey: progress endpoint works offline"
+    },
+    {
+      "task": "text_to_speech",
+      "engine": "Kokoro ONNX (local weights in models/)",
+      "local": "always",
+      "cloud": "never — the edge-tts cloud path was removed as a privacy fix",
+      "code": "backend/tts.py:generate",
+      "network_calls": 0,
+      "evidence": "measured: 2.9s first, 0.66s warm for 2.6s of audio",
+      "note": "measured by scripts/perf_audit.py on the local TTS endpoint"
+    },
+    {
+      "task": "speech_to_text",
+      "engine": "faster-whisper (local) — cloud Whisper is the default only when a key exists",
+      "local": "yes, and the only path offline",
+      "cloud": "yes (Groq whisper-large-v3-turbo) — default when key present",
+      "code": "backend/brain.py:transcribe",
+      "network_calls": "0 offline / 1 online (audio only)",
+      "evidence": "offline_journey health: stt='local:whisper'; 3s clip transcribed in 0.78s on CPU"
+    },
+    {
+      "task": "camera_framing_diagnostics",
+      "engine": "in-browser WASM (vendored, no CDN)",
+      "local": "always",
+      "cloud": "never",
+      "code": "frontend/src/hooks/useFaceAnalysis.ts + frontend/public/wasm/",
+      "network_calls": 0,
+      "evidence": "face-metrics-test.mjs exit 0; no CDN references in index.html"
+    },
+    {
+      "task": "persistence",
+      "engine": "local SQLite file (aria_history.db)",
+      "local": "always",
+      "cloud": "never",
+      "code": "backend/store.py",
+      "network_calls": 0,
+      "evidence": "progress timeline read from disk in both journeys"
+    },
+    {
+      "task": "embeddings",
+      "engine": "not used — matching is deterministic quote verification",
+      "local": "n/a",
+      "cloud": "never",
+      "code": null,
+      "network_calls": 0,
+      "note": "explicitly not used; no embedding model is shipped or called"
+    }
+  ],
+  "data_that_leaves_the_machine": {
+    "cloud_mode_online": [
+      "resume text (first 14000 chars) for structured extraction",
+      "resume summary + JD focus lines for question generation",
+      "the candidate's spoken/typed answer transcript for scoring",
+      "spoken audio for cloud Whisper STT (only when the mic path is used)"
+    ],
+    "never_sent_in_any_mode": [
+      "camera frames or video",
+      "the raw uploaded file itself",
+      "generated TTS audio",
+      "practice history / SQLite contents",
+      "the local Whisper model or Kokoro weights"
+    ],
+    "offline_mode": "nothing leaves the machine; verified by starting the server with no API key and completing the full workflow"
+  }
+}

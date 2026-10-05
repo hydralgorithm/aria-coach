@@ -89,19 +89,19 @@ export default function CameraSetup({
           value={metrics.facing}
           good={0.6}
         />
-        <div className="flex justify-between pt-0.5 text-[10px] text-white/40">
+        <div className="flex justify-between pt-0.5 text-[10px] text-white/55">
           <span>
             yaw {metrics.yawDeg.toFixed(0)}° / pitch{" "}
             {metrics.pitchDeg.toFixed(0)}°
           </span>
           <span>{metrics.fps} fps</span>
         </div>
-        <p className="text-[9px] leading-snug text-white/30">
+        <p className="text-[9px] leading-snug text-white/50">
           {metrics.calibrated
             ? "Framing only — glance at your notes freely; this checks the camera angle, not your face."
             : "Calibrating your neutral pose…"}
         </p>
-        <p className="text-[9px] leading-snug text-white/30">
+        <p className="text-[9px] leading-snug text-white/50">
           Runs entirely on your device. No video leaves your machine, and no
           emotion is ever read from your face.
         </p>

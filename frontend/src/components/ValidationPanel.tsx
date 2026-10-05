@@ -65,7 +65,7 @@ const verdictTone = (verdict: string) => {
   if (verdict === "supported") return "text-mint-400"
   if (verdict === "weakly supported") return "text-amber-300"
   if (verdict === "contradicted") return "text-red-300"
-  return "text-white/40"
+  return "text-white/55"
 }
 
 /**
@@ -131,12 +131,12 @@ export default function ValidationPanel() {
                   <h3 className="text-xs font-semibold tracking-wider text-white uppercase">
                     Published Validation
                   </h3>
-                  <p className="text-[10px] text-white/40">Empirical score reliability</p>
+                  <p className="text-[10px] text-white/55">Empirical score reliability</p>
                 </div>
               </div>
               <button
                 onClick={() => setOpen(false)}
-                className="flex size-7 items-center justify-center rounded-lg text-white/40 hover:bg-white/10 hover:text-white transition"
+                className="flex size-7 items-center justify-center rounded-lg text-white/55 hover:bg-white/10 hover:text-white transition"
                 aria-label="Close"
               >
                 <X className="size-4" />
@@ -151,7 +151,7 @@ export default function ValidationPanel() {
                     Not generated yet. Aria&apos;s score validation runs offline — no
                     human rating is needed or requested.
                   </p>
-                  <p className="text-[10px] leading-relaxed text-white/40">
+                  <p className="text-[10px] leading-relaxed text-white/55">
                     Run <code className="rounded bg-white/10 px-1 py-0.5 text-white/80 font-mono text-[9px]">python scripts/errorbars.py score</code> then{" "}
                     <code className="rounded bg-white/10 px-1 py-0.5 text-white/80 font-mono text-[9px]">analyze</code> to publish the numbers.
                   </p>
@@ -160,7 +160,7 @@ export default function ValidationPanel() {
               <>
                 {disc && (
                   <section>
-                    <p className="text-[10px] uppercase tracking-wider text-white/35">
+                    <p className="text-[10px] uppercase tracking-wider text-white/50">
                       Can Aria tell a weak answer from a strong one?
                     </p>
                     <p className="mt-1 text-xs leading-relaxed text-white/70">
@@ -179,7 +179,7 @@ export default function ValidationPanel() {
 
                 {rel && (
                     <section className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-3 space-y-1.5">
-                      <p className="text-[10px] font-medium uppercase tracking-wider text-white/40">
+                      <p className="text-[10px] font-medium uppercase tracking-wider text-white/55">
                         Aria against itself
                       </p>
                       <p className="text-[11px] leading-relaxed text-white/70">
@@ -196,7 +196,7 @@ export default function ValidationPanel() {
 
                   {(report.convergent?.length ?? 0) > 0 && (
                     <section className="space-y-2">
-                      <p className="text-[10px] font-medium uppercase tracking-wider text-white/40">
+                      <p className="text-[10px] font-medium uppercase tracking-wider text-white/55">
                         Does the score track reality?
                       </p>
                       <div className="space-y-1.5 rounded-xl border border-white/[0.06] bg-white/[0.02] p-2.5">
@@ -213,7 +213,7 @@ export default function ValidationPanel() {
                             </span>
                             <div className="min-w-0 flex-1">
                               <span className="text-white/85 font-medium">{row.label}</span>
-                              <span className="mt-0.5 block text-[10px] text-white/45">
+                              <span className="mt-0.5 block text-[10px] text-white/55">
                                 {row.feature_label} vs {row.dimension} · rho{" "}
                                 {fmt(row.rho)} ({row.verdict})
                               </span>
@@ -226,7 +226,7 @@ export default function ValidationPanel() {
 
                   {judge && (
                     <section className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-3 space-y-1.5">
-                      <p className="text-[10px] font-medium uppercase tracking-wider text-white/40">
+                      <p className="text-[10px] font-medium uppercase tracking-wider text-white/55">
                         Independent judge
                       </p>
                       <p className="text-[11px] leading-relaxed text-white/70">
@@ -251,7 +251,7 @@ export default function ValidationPanel() {
 
                   {(report.caveats?.length ?? 0) > 0 && (
                     <section className="space-y-1.5 rounded-xl border border-white/[0.06] bg-white/[0.02] p-3">
-                      <p className="text-[10px] font-medium uppercase tracking-wider text-white/40">
+                      <p className="text-[10px] font-medium uppercase tracking-wider text-white/55">
                         What this does not claim
                       </p>
                       <ul className="space-y-1">
@@ -265,7 +265,7 @@ export default function ValidationPanel() {
                   )}
 
                   {report.generated_at && (
-                    <p className="text-[9px] text-white/30 text-right">
+                    <p className="text-[9px] text-white/50 text-right">
                       Generated {report.generated_at}
                     </p>
                   )}
@@ -287,7 +287,7 @@ export default function ValidationPanel() {
         className={`flex size-8 items-center justify-center rounded-xl transition ${
           open
             ? "bg-mint-500/20 text-mint-300 border border-mint-500/30"
-            : "text-white/40 hover:bg-white/10 hover:text-white/80"
+            : "text-white/55 hover:bg-white/10 hover:text-white/80"
         }`}
       >
         <FlaskConical className="size-4" />

@@ -46,12 +46,12 @@ export default function DebugPanel({ debug, stage, error, onClose }: Props) {
               <h3 className="text-xs font-semibold tracking-wider text-white uppercase">
                 Mic Diagnostics
               </h3>
-              <p className="text-[10px] text-white/40">Audio stream telemetry</p>
+              <p className="text-[10px] text-white/55">Audio stream telemetry</p>
             </div>
           </div>
           <button
             onClick={onClose}
-            className="flex size-7 items-center justify-center rounded-lg text-white/40 hover:bg-white/10 hover:text-white transition"
+            className="flex size-7 items-center justify-center rounded-lg text-white/55 hover:bg-white/10 hover:text-white transition"
             aria-label="Close debug panel"
           >
             <X className="size-4" />
@@ -94,7 +94,7 @@ export default function DebugPanel({ debug, stage, error, onClose }: Props) {
 
           {/* live level vs threshold meter */}
           <div className="space-y-1.5 rounded-xl border border-white/[0.06] bg-white/[0.02] p-2.5">
-            <div className="flex justify-between text-white/45 text-[10px]">
+            <div className="flex justify-between text-white/55 text-[10px]">
               <span>level {debug.level.toFixed(3)}</span>
               <span>threshold {debug.threshold.toFixed(3)}</span>
             </div>
@@ -119,11 +119,11 @@ export default function DebugPanel({ debug, stage, error, onClose }: Props) {
           )}
 
           <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-2.5">
-            <p className="mb-1 text-white/45 text-[10px]">Event Log</p>
+            <p className="mb-1 text-white/55 text-[10px]">Event Log</p>
             <ul className="max-h-36 space-y-1 overflow-y-auto overscroll-contain pr-1">
               {[...debug.events].reverse().map((e, i) => (
                 <li key={`${e.at}-${i}`} className="text-white/70 text-[10px]">
-                  <span className="text-white/35 font-mono">
+                  <span className="text-white/50 font-mono">
                     {new Date(e.at).toLocaleTimeString([], {
                       hour12: false,
                       minute: "2-digit",
@@ -134,7 +134,7 @@ export default function DebugPanel({ debug, stage, error, onClose }: Props) {
                 </li>
               ))}
               {debug.events.length === 0 && (
-                <li className="text-white/35 text-[10px]">(nothing yet — tap the mic)</li>
+                <li className="text-white/50 text-[10px]">(nothing yet — tap the mic)</li>
               )}
             </ul>
           </div>
@@ -156,7 +156,7 @@ function Row({
 }) {
   return (
     <div className="flex items-center justify-between text-[11px]">
-      <span className="text-white/45">{label}</span>
+      <span className="text-white/55">{label}</span>
       <span className={accent ?? "text-white/85"}>{value}</span>
     </div>
   )

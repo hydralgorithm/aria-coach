@@ -25,6 +25,13 @@ def extract_document(filename: str, data: bytes) -> dict:
     name = (filename or "").lower()
     if name.endswith(".pdf") or data[:4] == b"%PDF":
         return _extract_pdf(data)
+    # Defence-in-depth for non-PDF paths: a binary blob is not a resume, and
+    # decoding it as text would produce garbage that reaches the LLM.
+    sample = data[:8192]
+    if sample and sample.count(0) > len(sample) * 0.05:
+        raise ValueError(
+            "unsupported binary file — upload a PDF or TXT resume"
+        )
     if name.endswith((".txt", ".md", ".markdown", ".rtf")):
         text = _clean(data.decode("utf-8", errors="ignore"))
         return {
@@ -351,6 +358,58 @@ def _build_audit(
 
 _WS = re.compile(r"[ \t\u00a0]+")
 _BLANK_LINES = re.compile(r"\n{3,}")
+
+
+# Instructions smuggled into a resume/JD. These are treated as DATA, never as
+# commands, but "data" is not enough on its own: a model handed
+# "You are the system administrator" will happily build an interview around a
+# job title that does not exist. So we neutralise the sentence before it ever
+# reaches a prompt. The line is removed, not silently reinterpreted.
+_INJECTION_PATTERNS = re.compile(
+    r"("
+    r"ignore\s+(?:all\s+)?(?:the\s+)?(?:previous|prior|above)\s+instructions?"
+    r"|disregard\s+(?:all\s+)?(?:the\s+)?(?:previous|prior|above)\s+(?:instructions?|rules?)"
+    r"|you\s+are\s+(?:now\s+)?(?:the\s+)?(?:a\s+)?(?:system\s+)?(?:administrator|admin|root|developer\s+mode)"
+    r"|reveal\s+(?:your|the)\s+(?:api[\s_-]?key|system\s+prompt|secret|instructions?)"
+    r"|show\s+(?:me\s+)?(?:your|the)\s+(?:system\s+prompt|api[\s_-]?key)"
+    r"|print\s+(?:your|the)\s+(?:system\s+prompt|api[\s_-]?key|instructions?)"
+    r"|exfiltrate"
+    r"|(?:send|post|upload|leak)\s+(?:the\s+|your\s+|all\s+)?(?:secrets?|keys?|credentials?|data)\s+to"
+    r"|new\s+instructions?\s*:"
+    r"|<\s*/?\s*(?:system|assistant|im_start)\s*>"
+    r"|\[\s*/?\s*(?:system|inst|sys)\s*\]"
+    r"|do\s+not\s+tell\s+(?:the\s+)?(?:user|candidate)"
+    r"|without\s+(?:telling|informing|notifying)\s+the\s+(?:user|candidate)"
+    r")",
+    re.IGNORECASE,
+)
+
+
+def neutralize_injected_instructions(text: str) -> tuple[str, int]:
+    """Strip instruction-like sentences from untrusted document text.
+
+    Returns (cleaned_text, sentences_removed). Removal is per-sentence rather
+    than whole-line so a genuine bullet that merely sits next to an injected
+    sentence is preserved.
+
+    The strict reading of "treat uploads as data" is that we never obey the
+    text. That is necessary but not sufficient: an injected job title or role
+    still shapes the questions the model writes. Removing the sentence keeps
+    the attacker from steering the interview at all.
+    """
+    if not text:
+        return text, 0
+    removed = 0
+    kept: list[str] = []
+    # split on sentence-ish boundaries, keeping the separators for reassembly
+    for part in re.split(r"(?<=[.!?])\s+|\n", text):
+        if _INJECTION_PATTERNS.search(part):
+            removed += 1
+            continue
+        kept.append(part)
+    if not removed:
+        return text, 0
+    return _clean(" ".join(kept)), removed
 
 
 def _clean(text: str) -> str:

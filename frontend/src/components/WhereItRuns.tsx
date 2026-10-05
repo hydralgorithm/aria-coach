@@ -3,10 +3,11 @@ import { createPortal } from "react-dom"
 import { Cloud, Cpu, ShieldCheck, X } from "lucide-react"
 
 type Engines = {
-  llm_primary?: string
+  llm_primary?: string | null
   llm_fallback?: string | null
   llm_last?: string | null
   stt?: string
+  stt_last?: string | null
   tts_local?: boolean
   vision_local?: boolean
 }
@@ -55,9 +56,15 @@ export default function WhereItRuns() {
   const rows: Row[] = [
     {
       task: "Speech-to-text",
-      where: "cloud",
-      engine: engines?.stt ?? "groq:whisper-large-v3-turbo",
-      note: "The most accurate option we have. The transcript gate exists precisely because any ASR can mishear an accent.",
+      where: engines?.stt_last?.startsWith("local") ? "local" : "cloud",
+      engine:
+        engines?.stt_last ??
+        engines?.stt ??
+        "groq:whisper-large-v3-turbo",
+      note:
+        engines?.stt_last?.startsWith("local")
+          ? "Running fully on-device right now (faster-whisper small, CPU)."
+          : "Cloud Whisper for accuracy. Falls back to on-device faster-whisper when offline — the correctable transcript exists because any ASR can mishear.",
     },
     {
       task: "Résumé text extraction",
@@ -67,29 +74,41 @@ export default function WhereItRuns() {
     },
     {
       task: "Field extraction & scoring",
-      where: "cloud",
-      engine: engines?.llm_primary ?? "groq",
-      note: engines?.llm_fallback
-        ? `Offline fallback ready: ${engines.llm_fallback}`
-        : "No local fallback running — start Ollama for offline mode.",
+      where: engines?.llm_last === "ollama" ? "local" : "cloud",
+      engine:
+        engines?.llm_last === "ollama"
+          ? engines.llm_fallback ?? "ollama (local)"
+          : engines?.llm_primary ?? "groq",
+      note:
+        engines?.llm_last === "ollama"
+          ? "Served by the local model right now."
+          : engines?.llm_fallback
+            ? `Offline fallback ready: ${engines.llm_fallback}`
+            : "No local fallback running — start Ollama for offline mode.",
     },
     {
       task: "Text-to-speech",
       where: "local",
-      engine: engines?.tts_local ? "Kokoro ONNX" : "browser / fallback",
-      note: "Speech is synthesised on your CPU.",
+      engine: engines?.tts_local ? "Kokoro ONNX" : "text only (fallback)",
+      note: "Synthesised on your CPU. There is no cloud TTS — replies quoting your words are never sent to a third-party speech service.",
     },
     {
       task: "Camera setup check",
       where: "in-browser",
       engine: "MediaPipe Face Landmarker",
-      note: "No video frame leaves the browser.",
+      note: "No video frame leaves the browser. Framing only — never emotion.",
     },
     {
       task: "Parse audit & evidence checks",
       where: "local",
       engine: "deterministic (no model)",
       note: "Layout geometry and string matching — reproducible, not sampled.",
+    },
+    {
+      task: "Practice history",
+      where: "local",
+      engine: "SQLite (aria_history.db)",
+      note: "One local file you can export, inspect or delete. Never uploaded.",
     },
   ]
 
@@ -117,12 +136,12 @@ export default function WhereItRuns() {
                   <h3 className="text-xs font-semibold tracking-wider text-white uppercase">
                     Where This Runs
                   </h3>
-                  <p className="text-[10px] text-white/40">On-device & cloud architecture</p>
+                  <p className="text-[10px] text-white/55">On-device & cloud architecture</p>
                 </div>
               </div>
               <button
                 onClick={() => setOpen(false)}
-                className="flex size-7 items-center justify-center rounded-lg text-white/40 hover:bg-white/10 hover:text-white transition"
+                className="flex size-7 items-center justify-center rounded-lg text-white/55 hover:bg-white/10 hover:text-white transition"
                 aria-label="Close"
               >
                 <X className="size-4" />
@@ -166,7 +185,7 @@ export default function WhereItRuns() {
                       <span className="mt-1 block font-mono text-[10px] text-white/50">
                         {r.engine}
                       </span>
-                      <p className="mt-1 text-[10px] leading-relaxed text-white/45">
+                      <p className="mt-1 text-[10px] leading-relaxed text-white/55">
                         {r.note}
                       </p>
                     </div>
@@ -189,7 +208,7 @@ export default function WhereItRuns() {
         className={`flex size-8 items-center justify-center rounded-xl transition ${
           open
             ? "bg-mint-500/20 text-mint-300 border border-mint-500/30"
-            : "text-white/40 hover:bg-white/10 hover:text-white/80"
+            : "text-white/55 hover:bg-white/10 hover:text-white/80"
         }`}
       >
         <Cpu className="size-4" />

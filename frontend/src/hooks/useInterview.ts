@@ -2,6 +2,31 @@ import { useCallback, useEffect, useRef, useState } from "react"
 
 import type { SetupSummary } from "@/hooks/useFaceAnalysis"
 
+/** Stable per-tab session id so two tabs never overwrite each other's state. */
+const SESSION_ID = (() => {
+  try {
+    const key = "aria_session_id"
+    let v = sessionStorage.getItem(key)
+    if (!v) {
+      v =
+        typeof crypto !== "undefined" && "randomUUID" in crypto
+          ? crypto.randomUUID().replace(/-/g, "").slice(0, 16)
+          : Math.random().toString(36).slice(2) + Date.now().toString(36)
+      sessionStorage.setItem(key, v)
+    }
+    return v
+  } catch {
+    return "default"
+  }
+})()
+
+/** fetch wrapper that always carries the session id header. */
+export async function apiFetch(url: string, init?: RequestInit): Promise<Response> {
+  const headers = new Headers(init?.headers)
+  headers.set("X-Session-Id", SESSION_ID)
+  return fetch(url, { ...init, headers })
+}
+
 export type PersonaInfo = {
   id: string
   label: string
@@ -65,6 +90,8 @@ export type ScoreRecord = {
   answer: string
   score: number
   raw_score?: number
+  /** "technical" or "behavioral" — the rubric used to score it */
+  rubric?: string
   breakdown?: Record<string, number>
   verdict: string
   strengths: EvidenceItem[]
@@ -75,6 +102,8 @@ export type ScoreRecord = {
   setup?: SetupSummary | null
   answer_revision: string
   spoken_feedback: string
+  /** observable delivery metrics (fillers, pace) — coaching signals, not scored */
+  speech?: SpeechMetrics
   /** attempt number (1 = first answer) present on retry records */
   attempt?: number
   /** present on retry records */
@@ -86,6 +115,106 @@ export type ScoreRecord = {
   /** present on a re-score: the score before the correction */
   score_before?: number
   score_delta?: number
+}
+
+export type SpeechMetrics = {
+  words: number
+  duration_s?: number | null
+  wpm?: number | null
+  filler_count: number
+  fillers_per_100_words: number
+  top_fillers: { word: string; count: number }[]
+  restarts: number
+  longest_sentence_words: number
+  notes: string[]
+}
+
+export type ResumeClaim = {
+  claim: string
+  quote: string
+  source: string
+  probes: string[]
+}
+
+export type SowItem = {
+  point: string
+  quote?: string
+  source?: string
+  example?: string
+  rewrite?: string
+  competency?: string
+}
+
+export type SowReport = {
+  strengths: SowItem[]
+  weaknesses: SowItem[]
+  opportunities: SowItem[]
+  claims: ResumeClaim[]
+  provenance_note?: string
+}
+
+export type ReadinessComponent = {
+  key: string
+  label: string
+  value: number | null
+  weight: number
+  note?: string
+}
+
+export type Readiness = {
+  overall: number
+  components: ReadinessComponent[]
+  scale_note?: string
+  missing_components?: string[]
+}
+
+export type LearningResource = {
+  title: string
+  provider: string
+  url: string
+  difficulty?: string
+  estimated_time?: string
+  why?: string
+  offline_alternative?: string
+  verified?: string
+}
+
+export type LearningItem = {
+  topic: string
+  priority: string
+  why: string
+  evidence?: string
+  origin: string
+  resource: LearningResource
+  practice_task: string
+  mini_drill: string
+  retest: string
+  estimated_effort?: string
+}
+
+export type LearningPlan = {
+  items: LearningItem[]
+  method_note?: string
+}
+
+export type ProgressReport = {
+  timeline: {
+    session: number
+    date: string
+    avg_score: number
+    answers: number
+    persona: string
+    has_jd: boolean
+  }[]
+  improvement: number | null
+  weakest_competency: {
+    competency: string
+    avg_score: number
+    attempts: number
+  } | null
+  next_action: string | null
+  behaviour?: BehaviourStats
+  computed_from?: string
 }
 
 export type ParseFlag = {
@@ -158,6 +287,14 @@ export type InterviewState = {
   /** the job description the questions are grounded in, if any */
   jd?: string
   coverage?: Coverage
+  /** explicit strengths / weaknesses / opportunities, every item evidenced */
+  sow_report?: SowReport
+  /** explainable practice-readiness profile (never a hiring prediction) */
+  readiness?: Readiness
+  /** gap-driven learning plan with curated resources */
+  learning_plan?: LearningPlan
+  /** the configured session length from coach.INTERVIEW_LENGTH (never hard-coded here) */
+  interview_length?: number
   setupSummary?: SetupSummaryReport | null
   /** confidence as behaviour chosen (cumulative, local history) */
   behaviour?: BehaviourStats
@@ -192,6 +329,10 @@ const EMPTY: InterviewState = {
   parse: {},
   jd: "",
   coverage: undefined,
+  sow_report: undefined,
+  readiness: undefined,
+  learning_plan: undefined,
+  interview_length: undefined,
   setupSummary: null,
   behaviour: undefined,
 }
@@ -217,13 +358,51 @@ export function useInterview(
 
   // personality modes live on the backend so prompts and UI never drift
   useEffect(() => {
-    fetch("/api/personas")
+    apiFetch("/api/personas")
       .then((r) => r.json())
       .then((d: { personas?: PersonaInfo[]; active?: string }) => {
         setPersonas(d.personas ?? [])
         if (d.active) setPersona(d.active)
       })
       .catch(() => {})
+  }, [])
+
+  // Refresh safety: the backend keeps this tab's session (keyed by the stable
+  // per-tab X-Session-Id), so a reload restores the interview instead of
+  // silently dropping it. Empty state (no resume yet) is left alone.
+  useEffect(() => {
+    let cancelled = false
+    apiFetch("/api/interview/state")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (cancelled || !d) return
+        if ((d.questions?.length ?? 0) > 0) {
+          setState((prev) => ({
+            ...prev,
+            filename: d.filename ?? "",
+            profile: d.profile ?? "",
+            structured: d.structured ?? {},
+            questions: d.questions ?? [],
+            answers: d.answers ?? [],
+            currentQuestion:
+              (d.answers?.length ?? 0) < (d.questions?.length ?? 0)
+                ? d.questions[d.answers.length]
+                : null,
+            parse: d.parse ?? {},
+            jd: d.jd ?? "",
+            coverage: d.coverage ?? {},
+            sow_report: d.sow_report ?? undefined,
+            readiness: d.readiness ?? undefined,
+            learning_plan: d.learning_plan ?? undefined,
+            interview_length: d.interview_length ?? undefined,
+            behaviour: d.behaviour ?? undefined,
+          }))
+        }
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
   }, [])
 
   const activePersona =
@@ -251,7 +430,7 @@ export function useInterview(
       }
 
       try {
-        const res = await fetch("/api/interview/persona", {
+        const res = await apiFetch("/api/interview/persona", {
           method: "POST",
           signal: controller.signal,
           headers: { "Content-Type": "application/json" },
@@ -285,7 +464,7 @@ export function useInterview(
         form.append("file", file)
         form.append("persona", persona)
         form.append("jd", jd)
-        const res = await fetch("/api/interview/resume", {
+        const res = await apiFetch("/api/interview/resume", {
           method: "POST",
           body: form,
         })
@@ -303,6 +482,10 @@ export function useInterview(
           parse: data.parse ?? {},
           jd: data.jd ?? "",
           coverage: data.coverage ?? {},
+          sow_report: data.sow_report ?? undefined,
+          readiness: data.readiness ?? undefined,
+          learning_plan: data.learning_plan ?? undefined,
+          interview_length: data.interview_length ?? undefined,
         })
         if (data.audio_url) void playAudio(data.audio_url)
       } catch (err) {
@@ -321,7 +504,7 @@ export function useInterview(
     setError(null)
     setAnalyzing(true)
     try {
-      const res = await fetch("/api/interview/jd", {
+      const res = await apiFetch("/api/interview/jd", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ message: jd }),
@@ -337,6 +520,10 @@ export function useInterview(
         questions: data.questions ?? [],
         answers: [],
         currentQuestion: data.current_question ?? null,
+        sow_report: data.sow_report ?? prev.sow_report,
+        readiness: data.readiness ?? prev.readiness,
+        learning_plan: data.learning_plan ?? prev.learning_plan,
+        interview_length: data.interview_length ?? prev.interview_length,
       }))
     } catch (err) {
       setError(
@@ -352,12 +539,13 @@ export function useInterview(
       answer: string,
       setup?: SetupSummary | null,
       edited = false,
-      source: "voice" | "typed" = "typed"
+      source: "voice" | "typed" = "typed",
+      durationS?: number | null
     ) => {
       setError(null)
       setScoring(true)
       try {
-        const res = await fetch("/api/interview/answer", {
+        const res = await apiFetch("/api/interview/answer", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -365,6 +553,7 @@ export function useInterview(
             setup: setup ?? null,
             edited,
             source,
+            duration_s: durationS ?? null,
           }),
         })
         const data = await res.json()
@@ -375,6 +564,10 @@ export function useInterview(
           currentQuestion: data.next_question ?? null,
           structured: data.state?.structured ?? prev.structured,
           profile: data.state?.profile ?? prev.profile,
+          sow_report: data.state?.sow_report ?? prev.sow_report,
+          readiness: data.state?.readiness ?? prev.readiness,
+          learning_plan: data.state?.learning_plan ?? prev.learning_plan,
+          interview_length: data.state?.interview_length ?? prev.interview_length,
           setupSummary:
             data.state?.setup_summary ?? prev.setupSummary,
           behaviour: data.state?.behaviour ?? prev.behaviour,
@@ -395,17 +588,18 @@ export function useInterview(
       answer: string,
       setup: SetupSummary | null,
       questionId: number,
-      edited = false
+      edited = false,
+      durationS?: number | null
     ) => {
       setError(null)
       setRetrying(true)
       try {
-        const res = await fetch("/api/interview/retry", {
+        const res = await apiFetch("/api/interview/retry", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             message: answer,
-            setup: setup ?? null,
+            setup: { ...(setup ?? {}), duration_s: durationS ?? null },
             edited,
             question_id: questionId,
           }),
@@ -434,7 +628,7 @@ export function useInterview(
       setError(null)
       setScoring(true)
       try {
-        const res = await fetch("/api/interview/rescore", {
+        const res = await apiFetch("/api/interview/rescore", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ message: text.trim(), question_id: questionId }),
@@ -476,7 +670,7 @@ export function useInterview(
     setError(null)
     setRetryTarget(null)
     setRetryResults({})
-    await fetch("/api/interview/reset", { method: "POST" }).catch(() => {})
+    await apiFetch("/api/interview/reset", { method: "POST" }).catch(() => {})
   }, [])
 
   return {

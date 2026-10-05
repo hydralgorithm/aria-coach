@@ -802,3 +802,71 @@ score.
 Items 1–2 are the same one-line change and the highest-value item in either round: it converts a
 *claim* about persona-independence into a *guarantee*. None of these change the published error
 bars, which were computed under a single persona and are unaffected by items 3–7.
+---
+
+## Q23. "The problem statement asks for personalized learning resources. Show me one."
+
+> It is in the interview flow, not in a report you have to go looking for. After the last
+> question the page reads, in this order: **session complete, readiness snapshot, top
+> weaknesses, your learning plan**, then the resources, drills and the re-test for each item,
+> then the previous/target score and the retry action. No refresh, no separate dashboard.
+>
+> Every row names where it came from. A **JD gap** row says so and quotes the requirement. A
+> **measured weakness** row prints the candidate's own average across their attempts. An
+> **unproven claim** row quotes the claim off the résumé. If a row has no evidence the card
+> says *none on file — that absence is the reason this is here*; we do not manufacture
+> evidence to justify a recommendation. And when there is genuinely no gap, the plan says so
+> explicitly instead of rendering an empty screen — which is what it used to do.
+>
+> The resource comes from a fixed 17-entry catalog with provider, difficulty, time and an
+> offline alternative. **The model never writes a URL.** A test asserts every URL on every
+> plan item is in the catalog.
+
+## Q24. "Your re-test says `+19`. Convenient. Where does that number come from?"
+
+> Arithmetic on two stored attempts, and nothing else. The panel reads `previous 47 → now 66
+> (+19)` from the stored diff the retry endpoint already returned. A worse retry renders as a
+> negative delta; we do not clamp it. The browser smoke test asserts `delta == after −
+> before` so a boast cannot be printed by accident, and it drives a real retry through the
+> real UI to produce the number on screen.
+>
+> In fact our last two runs produced `42 → 42 (0)` and `45 → 0 (-45)`. Both were published
+> as-is. If you want the flattering version, the re-test is not the evidence.
+>
+> There is no target score we made up. What you get is your own previous attempt, your current
+> readiness component for that competency, and whatever the next attempt actually scores.
+
+## Q25. "Why six questions? Is that a hard-coded demo number?"
+
+> It used to be — three separate literal `6`s (the prompt, the truncation, the label). It is
+> now one named constant, `coach.INTERVIEW_LENGTH`, default 6, overridable with
+> `ARIA_INTERVIEW_LENGTH`. The prompt, the truncation and the number shown in the UI header
+> all read that one value, so they cannot drift apart. We deliberately did **not** build a
+> dynamic scheduling engine on top: the requirement was a named, configurable constant, and
+> a bigger system would have been scope we could not test.
+
+## Q26. "A technical answer scores 14/100 on 'Structure (STAR)'. That seems wrong."
+
+> It was, and it was our bug, not the candidate's. The backend already scored technical
+> questions on a different rubric — correctness weighted heaviest — but the UI labelled
+> every answer "HR scorecard" and drew the behavioural bars. A perfect STAR story about the
+> wrong answer was being displayed as if structure were the problem.
+>
+> There is now one canonical definition per rubric, in `frontend/src/lib/rubrics.ts`,
+> mirrored from `coach.DIMENSIONS` / `coach.TECH_DIMENSIONS`: technical answers show
+> correctness & approach, reasoning & depth, trade-offs & alternatives, clarity of
+> explanation, edge cases & limits. Behavioural answers show structure, evidence, ownership,
+> clarity, self-awareness. A test parses both files and fails if the weights drift.
+
+## Q27. "How do you know the plan isn't just rendered somewhere off-screen?"
+
+> Because we found this bug by *noticing* it, and the fix has a regression net that fails on
+> it. The backend had been returning a correct plan the whole time — six items on upload, six
+> after all six answers — while the panels were mounted above the session flow behind an
+> `items.length > 0` guard with no fallback. So every API test passed and the plan was still
+> invisible.
+>
+> `frontend/scripts/learning-plan-smoke.mjs` now drives a real browser through the whole
+> journey: paste a JD, upload a résumé, answer every question, then assert the completion
+> order, the plan content, a catalog resource link, a visible drill, and a real re-test
+> delta. It is in the docs as a first-class check, not a one-off manual pass.

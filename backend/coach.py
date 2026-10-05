@@ -11,13 +11,29 @@ Everything here follows real hiring practice:
 
 from __future__ import annotations
 
+import contextvars
 import json
+import os
 import re
+import threading
+from collections import OrderedDict
 from pathlib import Path
 
-from . import brain, parsing, store
+from . import brain, insights, parsing, speech, store
 
 _AUDIO_DIR = Path(__file__).resolve().parent.parent / "static" / "audio"
+
+# ---------------------------------------------------------------- session length
+
+#: How many questions one mock interview contains. Named once, overridable with
+#: ARIA_INTERVIEW_LENGTH so a demo can run a longer session without hunting for a
+#: hard-coded 6. The number the candidate sees in the UI comes from here, so the
+#: prompt, the truncation and the label can never drift apart.
+INTERVIEW_LENGTH = max(1, int(os.environ.get("ARIA_INTERVIEW_LENGTH", "6") or 6))
+
+#: How many JD requirements the question generator is told to focus on. This is
+#: a prompt budget, not the session length - they are independent on purpose.
+MAX_FOCUS_REQUIREMENTS = 6
 
 # --------------------------------------------------------------------- personas
 
@@ -173,32 +189,115 @@ def persona_voice() -> str:
 
 # ---------------------------------------------------------------- session state
 
-_state: dict = {
-    "filename": "",
-    "resume": "",
-    "structured": {},
-    "profile": "",
-    "questions": [],
-    "answers": [],
-    "persona": DEFAULT_PERSONA,
-    "parse": {},
-    "setup": [],
-    "jd": "",
-    "coverage": {},
-    # id of the row in the local history DB for this practice session
-    "session_id": None,
-    # question id -> first-attempt row id, so a transcript correction can be
-    # written back over the same attempt instead of adding a retry
-    "answer_rows": {},
-}
+def _new_state() -> dict:
+    """A fresh interview-state dict for one client session."""
+    return {
+        "filename": "",
+        "resume": "",
+        "structured": {},
+        "profile": "",
+        "questions": [],
+        "answers": [],
+        "persona": DEFAULT_PERSONA,
+        "parse": {},
+        "setup": [],
+        "jd": "",
+        "coverage": {},
+        # quantified resume claims the interview should interrogate
+        "claims": [],
+        # id of the row in the local history DB for this practice session
+        "session_id": None,
+        # question id -> first-attempt row id, so a transcript correction can be
+        # written back over the same attempt instead of adding a retry
+        "answer_rows": {},
+    }
+
+
+# Interview state is scoped per client session. The browser sends an
+# `X-Session-Id` header (one stable id per tab), and the server binds it for the
+# duration of each request. Two tabs therefore never overwrite each other's
+# resume, questions or answers. There is no auth on purpose: this is a local,
+# single-user app — the scoping exists to stop accidental cross-tab corruption.
+MAX_SESSIONS = 32
+
+_sid_var: contextvars.ContextVar[str] = contextvars.ContextVar(
+    "aria_session", default="default"
+)
+_sessions: OrderedDict[str, dict] = OrderedDict()
+_sessions_lock = threading.Lock()
+
+
+def bind_session(sid: str) -> contextvars.Token:
+    """Bind this request to a client session id; returns a resettable token."""
+    return _sid_var.set(sid)
+
+
+def _current_session() -> dict:
+    sid = _sid_var.get()
+    state = _sessions.get(sid)
+    if state is None:
+        with _sessions_lock:
+            state = _sessions.get(sid)
+            if state is None:
+                state = _new_state()
+                _sessions[sid] = state
+                while len(_sessions) > MAX_SESSIONS:
+                    _sessions.popitem(last=False)
+    return state
+
+
+class _SessionProxy:
+    """Reads/writes module state through the current request's session dict.
+
+    Every existing `coach._state[...]` reference keeps working unchanged, but it
+    now resolves against the session bound to the running request instead of one
+    process-global dict.
+    """
+
+    def __getitem__(self, key: str):
+        return _current_session()[key]
+
+    def __setitem__(self, key: str, value) -> None:
+        _current_session()[key] = value
+
+    def __delitem__(self, key: str) -> None:
+        del _current_session()[key]
+
+    def __contains__(self, key: str) -> bool:
+        return key in _current_session()
+
+    def __iter__(self):
+        return iter(list(_current_session()))
+
+    def get(self, key: str, default=None):
+        return _current_session().get(key, default)
+
+    def keys(self):
+        return list(_current_session().keys())
+
+    def items(self):
+        return list(_current_session().items())
+
+    def values(self):
+        return list(_current_session().values())
+
+    def update(self, values=None, **kwargs) -> None:
+        if values:
+            _current_session().update(values)
+        if kwargs:
+            _current_session().update(kwargs)
+
+
+_state = _SessionProxy()
 
 
 def reset() -> None:
-    persona = _state["persona"]
-    for key in list(_state):
-        _state[key] = {} if key == "structured" else []
-    _state["answer_rows"] = {}
-    _state.update(
+    state = _current_session()
+    persona = state.get("persona", DEFAULT_PERSONA)
+    for key in list(state):
+        state[key] = {} if key == "structured" else []
+    state["answer_rows"] = {}
+    state.update(
         filename="",
         resume="",
         profile="",
@@ -230,18 +329,43 @@ def _behaviour() -> dict:
 
 
 def state() -> dict:
+    current = dict(_state)
+    sow = insights.build_sow_report(
+        current.get("structured") or {},
+        current.get("resume") or "",
+        current.get("coverage") or {},
+        current.get("answers") or [],
+    )
+    readiness = insights.build_readiness(
+        current.get("coverage") or {},
+        current.get("answers") or [],
+        current.get("parse") or {},
+    )
+    learning_plan = insights.build_learning_plan(
+        current.get("coverage") or {},
+        sow,
+        current.get("claims") or [],
+    )
     return {
-        "filename": _state["filename"],
-        "profile": _state["profile"],
-        "structured": _state["structured"],
-        "questions": _state["questions"],
-        "answers": _state["answers"],
-        "persona": _state["persona"],
-        "parse": _state["parse"],
-        "jd": _state["jd"],
-        "coverage": _state["coverage"],
+        "filename": current.get("filename", ""),
+        "profile": current.get("profile", ""),
+        "structured": current.get("structured") or {},
+        "questions": current.get("questions") or [],
+        "answers": current.get("answers") or [],
+        "persona": current.get("persona", DEFAULT_PERSONA),
+        "parse": current.get("parse") or {},
+        "jd": current.get("jd", ""),
+        "coverage": current.get("coverage") or {},
+        # quantified resume claims + the probes the interviewer will use, so
+        # the UI can show the candidate exactly what it will test them on
+        "claims": current.get("claims") or [],
+        "sow_report": sow,
+        "readiness": readiness,
+        "learning_plan": learning_plan,
         "setup_summary": setup_summary(),
         "behaviour": _behaviour(),
+        # the configured session length, so the UI never hard-codes "6"
+        "interview_length": INTERVIEW_LENGTH,
     }
 
 
@@ -360,6 +484,26 @@ def _json_call(system: str, user: str, max_tokens: int = 1800) -> dict:
         raise ValueError(f"model did not return JSON: {raw[:200]}")
 
 
+def _check_model_facts(text: str, sources: str) -> str:
+    """Truth guard: redact concrete numbers the model added that exist nowhere.
+
+    The scoring model is instructed never to invent a metric in
+    `answer_revision`, but instruction-following is not a guarantee. This pass
+    is: any number the revision contains that appears in neither the answer nor
+    the resume is replaced with a fill-in placeholder, so a fabricated '37%'
+    can never reach the candidate dressed as their own achievement.
+    """
+    if not text:
+        return text
+    allowed = set(re.findall(r"\d[\d,.]*", sources or ""))
+
+    def _sub(m: re.Match) -> str:
+        num = m.group(0)
+        return num if num in allowed else "[add metric]"
+
+    return re.sub(r"\d[\d,.]*", _sub, text)
+
+
 # ------------------------------------------------------------- resume analysis
 
 EXTRACT_SYSTEM = (
@@ -420,7 +564,7 @@ QUESTION_SYSTEM = (
     '{"questions": [{"id": 1, "type": "behavioral|technical|motivation|'
     'screening|trap", "question": "...", "why": "what the interviewer is really '
     'testing, one short line", "competency": "e.g. ownership"}]}\n'
-    "Produce exactly 6 questions."
+    "Produce exactly {length} questions."
 )
 
 COMPETENCIES = (
@@ -433,16 +577,7 @@ SCORE_SYSTEM = (
     "You are an interview coach scoring a candidate's spoken answer the way a "
     "real hiring panel scores a structured interview scorecard.\n"
     "The interviewer personality for this session is {brief}\n\n"
-    "Score these five weighted dimensions (points shown are the maximum):\n"
-    "- relevance_structure (25): does it answer the question, STAR-shaped, "
-    "on-topic, no rambling?\n"
-    "- specificity_evidence (25): concrete detail, numbers, baselines, real "
-    "examples, personal contribution ('I' not 'we')?\n"
-    "- impact_ownership (20): measurable outcome, ownership, decision quality, "
-    "accountability?\n"
-    "- communication (15): clarity, concision, spoken readability, signposting?\n"
-    "- self_awareness (15): reflection, what they learned, what they would change, "
-    "coachability?\n\n"
+    "{rubric}"
     "Real-HR red flags to watch for and list explicitly: vagueness, no metrics, "
     "'we' instead of 'I', blame-shifting, over-claiming, rambling past ~2 "
     "minutes, unverifiable achievements, badmouthing a previous employer, "
@@ -491,6 +626,50 @@ DIMENSIONS = {
     "communication": 15,
     "self_awareness": 15,
 }
+
+# Technical questions are judged on a DIFFERENT rubric (P0.3): a perfect STAR
+# story about the wrong answer must not score well, and correctness must be
+# the heaviest dimension. Weights map onto the same five keys so history,
+# readiness and the retry diff stay comparable.
+TECH_DIMENSIONS = {
+    "relevance_structure": 20,   # correctness & approach
+    "specificity_evidence": 25,  # depth & reasoning
+    "impact_ownership": 20,      # trade-offs & alternatives
+    "communication": 15,         # clarity of explanation
+    "self_awareness": 20,        # edge cases & limits of own knowledge
+}
+
+BEHAVIORAL_RUBRIC = (
+    "Score these five weighted dimensions (points shown are the maximum):\n"
+    "- relevance_structure (25): does it answer the question, STAR-shaped, "
+    "on-topic, no rambling?\n"
+    "- specificity_evidence (25): concrete detail, numbers, baselines, real "
+    "examples, personal contribution ('I' not 'we')?\n"
+    "- impact_ownership (20): measurable outcome, ownership, decision quality, "
+    "accountability?\n"
+    "- communication (15): clarity, concision, spoken readability, signposting?\n"
+    "- self_awareness (15): reflection, what they learned, what they would change, "
+    "coachability?\n\n"
+)
+
+TECHNICAL_RUBRIC = (
+    "This is a TECHNICAL question. Score with the technical rubric — the "
+    "dimension names are fixed, but judge them as follows (points shown are "
+    "the maximum):\n"
+    "- relevance_structure (20): correctness. Is the core answer actually "
+    "right? A well-structured but wrong answer scores LOW here.\n"
+    "- specificity_evidence (25): reasoning & depth. Mechanisms, not buzzwords: "
+    "why it works, how it behaves, what sits underneath.\n"
+    "- impact_ownership (20): trade-offs. Alternatives considered, costs "
+    "acknowledged, when their approach would be the wrong choice.\n"
+    "- communication (15): clarity of explanation. Could a junior follow it?\n"
+    "- self_awareness (20): edge cases, failure modes, and honest limits — "
+    "saying 'I am not sure but here is how I would find out' scores better "
+    "than confident nonsense.\n\n"
+    "Distinguish WRONG (factually incorrect) from INCOMPLETE (right but thin): "
+    "name which it is inside 'verdict', and in 'hr_tip' give the corrected "
+    "explanation when the answer was wrong or incomplete.\n\n"
+)
 
 
 # --------------------------------------------------------- evidence-cited output
@@ -652,7 +831,7 @@ def _focus_lines(coverage: dict) -> list[str]:
         ),
     )
     lines: list[str] = []
-    for r in ranked[:6]:
+    for r in ranked[:MAX_FOCUS_REQUIREMENTS]:
         why = r.get("why") or "probe this requirement directly"
         lines.append(
             f"- [{r.get('importance', 'medium')} importance, "
@@ -715,11 +894,14 @@ def _make_questions(structured: dict, text: str, coverage: dict) -> list[dict]:
         competencies=COMPETENCIES,
         weak=weak_block,
         focus=focus,
+        length=str(INTERVIEW_LENGTH),
     )
     result = _json_call(system, payload)
 
     questions: list[dict] = []
-    for i, q in enumerate(result.get("questions", [])[:6], start=1):
+    for i, q in enumerate(
+        result.get("questions", [])[:INTERVIEW_LENGTH], start=1
+    ):
         if not isinstance(q, dict) or not q.get("question"):
             continue
         questions.append(
@@ -749,8 +931,23 @@ def load_resume(
     if len(text) < 40:
         raise ValueError("could not read enough text from that file")
 
+    # Untrusted content never reaches a prompt verbatim. Smuggled instructions
+    # are removed outright (parsing.neutralize_injected_instructions) so the
+    # model cannot be steered into interviewing a fabricated job title.
+    text, removed = parsing.neutralize_injected_instructions(text)
+    if removed:
+        parsed.setdefault("warnings", []).append(
+            f"removed {removed} instruction-like sentence(s) that tried to "
+            f"redirect the model"
+        )
+        print(f"  [security] stripped {removed} injected instruction line(s)")
+
     structured = _json_call(EXTRACT_SYSTEM, text[:14000])
+    claims = insights.extract_claims(text)
     jd = (jd or "").strip()
+    jd, jd_removed = parsing.neutralize_injected_instructions(jd)
+    if jd_removed:
+        print(f"  [security] stripped {jd_removed} injected instruction line(s) from JD")
     coverage = _coverage(jd, structured, text) if jd else {}
     questions = _make_questions(structured, text, coverage)
 
@@ -764,6 +961,7 @@ def load_resume(
         parse=parsed,
         jd=jd,
         coverage=coverage,
+        claims=claims,
     )
     _state["session_id"] = _start_session()
     return state()
@@ -774,6 +972,9 @@ def set_jd(jd: str) -> dict:
     if not _state["resume"]:
         raise ValueError("upload a resume first")
     jd = (jd or "").strip()
+    jd, removed = parsing.neutralize_injected_instructions(jd)
+    if removed:
+        print(f"  [security] stripped {removed} injected instruction line(s) from JD")
     coverage = _coverage(jd, _state["structured"], _state["resume"]) if jd else {}
     _state.update(
         jd=jd,
@@ -784,31 +985,56 @@ def set_jd(jd: str) -> dict:
     return state()
 
 
-def _score_question(question: dict, answer: str) -> dict:
+def _score_question(
+    question: dict, answer: str, duration_s: float | None = None
+) -> dict:
     """Score one answer against the rubric. Never mutates session state."""
     persona = PERSONAS[_state["persona"]]
+    # Technical questions get the technical rubric: correctness weighted
+    # heaviest, wrong-from-incomplete distinguished, trade-offs demanded.
+    is_technical = "tech" in str(question.get("type", "")).lower()
+    limits = TECH_DIMENSIONS if is_technical else DIMENSIONS
+    rubric = TECHNICAL_RUBRIC if is_technical else BEHAVIORAL_RUBRIC
+    claims = _state.get("claims") or []
+    claims_block = ""
+    if claims:
+        claims_block = (
+            "QUANTIFIED RESUME CLAIMS the candidate must be able to defend "
+            "(probe whether this answer shows they can):\n"
+            + "\n".join(f"- {c['claim']}" for c in claims[:3])
+            + "\n\n"
+        )
     payload = (
-        f"CANDIDATE FACTS:\n{json.dumps(_state['structured'], ensure_ascii=False)[:5000]}\n\n"
+        f"CANDIDATE FACTS:\n{json.dumps(_state['structured'], ensure_ascii=False)[:2500]}\n\n"
+        f"{claims_block}"
         f"QUESTION ({question['type']}, competency: {question.get('competency', 'n/a')}):\n"
         f"{question['question']}\n\n"
         f"WHAT IT IS TESTING: {question.get('why', '')}\n\n"
         "CANDIDATE'S SPOKEN ANSWER (auto-transcribed; it may contain filler "
-        f"words and transcription errors — judge the words as written):\n{answer}"
+        f"words and transcription errors — judge the words as written):\n{answer[:4000]}"
     )
-    system = _fill(SCORE_SYSTEM, brief=persona["brief"])
-    result = _json_call(system, payload)
+    system = _fill(SCORE_SYSTEM, brief=persona["brief"], rubric=rubric)
+    result = _json_call(system, payload, max_tokens=1200)
 
     raw_breakdown = result.get("breakdown", {}) or {}
     breakdown = {
         dim: max(0, min(limit, int(raw_breakdown.get(dim, 0) or 0)))
-        for dim, limit in DIMENSIONS.items()
+        for dim, limit in limits.items()
     }
     # The score is the scorecard total. No persona arithmetic: the same answer
     # scores the same for every interviewer, so retries are comparable.
     score = sum(breakdown.values())  # 0-100
+    # Truth guard: the revision may only contain numbers that exist in the
+    # candidate's own words or resume. Everything else becomes [add metric].
+    sources = f"{answer}\n{_state['resume']}"
+    revision = _check_model_facts(
+        str(result.get("answer_revision", "")), sources
+    )
     # the spoken line is prefixed by us so it can never contradict the score
     spoken_body = str(result.get("spoken_feedback", "")).strip()
     spoken_feedback = f"Score {score} out of 100. {spoken_body}".strip()
+    # Observable delivery metrics — coaching signals, never part of the score.
+    speech_metrics = speech.analyse(answer, duration_s)
 
     return {
         "question_id": int(question.get("id") or 0),
@@ -820,6 +1046,7 @@ def _score_question(question: dict, answer: str) -> dict:
         "score": score,
         "raw_score": score,
         "breakdown": breakdown,
+        "rubric": "technical" if is_technical else "behavioral",
         "verdict": str(result.get("verdict", "")),
         "strengths": _evidence(result.get("strengths", []), answer, _state["resume"]),
         "improvements": _evidence(
@@ -829,8 +1056,9 @@ def _score_question(question: dict, answer: str) -> dict:
             result.get("red_flags", []), answer, _state["resume"]
         ),
         "hr_tip": str(result.get("hr_tip", "")),
-        "answer_revision": str(result.get("answer_revision", "")),
+        "answer_revision": revision,
         "spoken_feedback": spoken_feedback,
+        "speech": speech_metrics,
         "setup": None,
         # "voice" when it came from the mic (so the transcript can be corrected
         # afterwards), "typed" when the candidate wrote it
@@ -958,6 +1186,7 @@ def score_answer(
     setup: dict | None = None,
     edited: bool = False,
     source: str = "typed",
+    duration_s: float | None = None,
 ) -> dict:
     """Score the candidate's answer to the current question.
 
@@ -970,7 +1199,7 @@ def score_answer(
     question = current_question()
     if question is None:
         raise ValueError("no current question — upload a resume first")
-    record = _score_question(question, answer)
+    record = _score_question(question, answer, duration_s)
     record["setup"] = setup
     record["source"] = "voice" if source == "voice" else "typed"
     _state["answers"].append(record)
@@ -1008,7 +1237,8 @@ def rescore_answer(question_id: int, answer: str) -> dict:
         raise ValueError("no answer to re-score for that question")
 
     before = _state["answers"][index]
-    record = _score_question(question, answer)
+    previous_duration = (before.get("speech") or {}).get("duration_s")
+    record = _score_question(question, answer, previous_duration)
     record["setup"] = before.get("setup")
     record["source"] = "voice"
     record["edited"] = True
@@ -1062,7 +1292,7 @@ def retry_answer(
     if before is None:
         raise ValueError("answer this question once before retrying it")
 
-    record = _score_question(question, answer)
+    record = _score_question(question, answer, _answer_duration(setup))
     record["setup"] = setup
     attempt = _next_attempt(qid)
     _persist_answer(question, record, attempt=attempt, edited=edited)
@@ -1073,3 +1303,14 @@ def retry_answer(
         "diff": _retry_diff(before, record, attempt),
         "behaviour": _behaviour(),
     }
+
+
+def _answer_duration(setup: dict | None) -> float | None:
+    """Spoken duration for a retry, when the browser recorded one."""
+    if isinstance(setup, dict):
+        value = setup.get("duration_s")
+        try:
+            return float(value) if value else None
+        except (TypeError, ValueError):
+            return None
+    return None

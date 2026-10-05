@@ -1,0 +1,30 @@
+{
+  "generated_at": "2026-10-05T04:02:32+0530",
+  "base_url": "http://127.0.0.1:8020",
+  "engines": {
+    "llm_primary": "groq:qwen/qwen3.8-27b",
+    "llm_fallback": "ollama:llama3.2:3b",
+    "llm_last": "ollama",
+    "stt": "groq:whisper-large-v3-turbo",
+    "stt_last": null,
+    "tts_local": true,
+    "vision_local": true
+  },
+  "timings_s": {
+    "resume_upload_total_s": 43.36,
+    "score_answer_s": 11.08,
+    "retry_s": 11.56,
+    "total_probe_calls": 0
+  },
+  "probe_scores": {
+    "excellent": 86,
+    "weak": 38,
+    "incomplete": 30,
+    "wrong_tech": 0,
+    "ambiguous": 35
+  },
+  "readiness": 45,
+  "coverage": "Strong Python and experience with PostgreSQL and Docker, with a background in backend development.",
+  "failures": [],
+  "verdict": "PASS"
+}

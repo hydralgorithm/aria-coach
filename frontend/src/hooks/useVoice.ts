@@ -70,6 +70,9 @@ export function useVoice(
   const chunksRef = useRef<Blob[]>([])
   const rafRef = useRef<number>(0)
   const analyserRefCurrent = useRef<AnalyserNode | null>(null)
+  // accumulated loud (speech) time of the last recording, in ms — used for the
+  // observable pace metrics (words per minute). Behavioural measurement only.
+  const spokenMsRef = useRef(0)
   // every recording session gets an id; stale async callbacks are discarded
   const sessionRef = useRef(0)
   const onTranscriptRef = useRef(onTranscript)
@@ -119,6 +122,7 @@ export function useVoice(
     (reason = "teardown") => {
       sessionRef.current++
       log(`${reason}: session -> ${sessionRef.current}`)
+      spokenMsRef.current = 0
       cancelAnimationFrame(rafRef.current)
       const rec = mediaRef.current
       mediaRef.current = null
@@ -199,6 +203,8 @@ export function useVoice(
       let calibrated = false
       let sawAnyLevel = false
       let flatReported = false
+      let spokenMs = 0
+      let lastLoudTick = 0
       const startedAt = performance.now()
 
       const tick = () => {
@@ -252,8 +258,13 @@ export function useVoice(
             speechStartedAt = now
             log(`speech detected (level=${level.toFixed(4)})`)
           }
+          if (lastLoudTick) spokenMs += now - lastLoudTick
+          lastLoudTick = now
           lastLoudAt = now
+        } else {
+          lastLoudTick = 0
         }
+        spokenMsRef.current = spokenMs
 
         if (level > 0.008) sawAnyLevel = true
         // analyser starved? fall back to a fixed recording window
@@ -438,5 +449,11 @@ export function useVoice(
 
   useEffect(() => () => teardown("unmount"), [teardown])
 
-  return { stage, levels, error, start, stop, debug }
+  /** Seconds of actual speech in the last recording (for pace metrics). */
+  const getSpeechDuration = useCallback(() => {
+    const ms = spokenMsRef.current
+    return ms > 500 ? ms / 1000 : null
+  }, [])
+
+  return { stage, levels, error, start, stop, debug, getSpeechDuration }
 }

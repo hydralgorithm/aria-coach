@@ -141,10 +141,11 @@ panel shows it live.
 
 | Task | Runs on | Why |
 |---|---|---|
-| Speech-to-text | Groq Whisper (**cloud**) | most accurate on accents; the correctable transcript exists because *any* ASR can mishear |
+| Speech-to-text | Groq Whisper (**cloud**), on-device faster-whisper fallback | most accurate on accents; the correctable transcript exists because *any* ASR can mishear. Offline mode uses the local model (`ARIA_OFFLINE=1`) |
 | Résumé text extraction | **on-device** (PyMuPDF / Tesseract) | the raw text never leaves the machine |
 | Field extraction & scoring | Groq (**cloud**), local Ollama fallback | a small local model genuinely underperforms on rubric judgement |
-| Text-to-speech | **on-device** (Kokoro ONNX) | free credibility |
+| Claims / SOW / readiness / learning plan | **on-device, deterministic** | built from your own gaps and stored attempts — see `backend/insights.py` |
+| Text-to-speech | **on-device** (Kokoro ONNX) | free credibility — and no cloud TTS: replies quoting your words are never sent to a third-party speech service |
 | Camera setup check | **in-browser** (MediaPipe) | no video ever leaves the device |
 | Parse audit & evidence checks | **on-device, deterministic** | reproducible, not sampled |
 | Practice history | **on-device** SQLite | exportable, inspectable, deletable |
@@ -302,10 +303,18 @@ main.py      original CLI conversation mode
 ```bash
 cd frontend
 npm run build                       # tsc -b && vite build
-npm run lint                        # oxlint (baseline: 537 warnings / 3 errors, all in vendored public/wasm)
+npm run lint                        # oxlint (baseline: 3 errors, all in vendored public/wasm; 0 in src/)
+npm run verify                      # build + WCAG contrast audit + face-metrics maths
 node scripts/face-metrics-test.mjs  # 14 checks on the camera framing maths
+node scripts/a11y-audit.mjs http://127.0.0.1:8000   # axe-core against the real DOM
+node scripts/learning-plan-smoke.mjs http://127.0.0.1:8000  # full browser journey:
+                                      # upload -> JD -> every question -> the learning plan
+                                      # -> resource link -> drill -> a real re-test delta
 
 cd ..
+python -m pytest tests/ -q          # 92 regression tests: parsing, evidence, truth guard,
+                                    # learning plan, rubric parity, API security
+python scripts/offline_journey.py   # on-device journey with the cloud key removed
 python scripts/errorbars.py analyze # rebuild the published validation report
 ```
 
@@ -348,7 +357,9 @@ two independent implementations of Krippendorff's α are cross-checked on random
 | `POST` | `/api/interview/persona` | Switch interviewer |
 | `POST` | `/api/interview/answer` | Score an answer, return the next question |
 | `POST` | `/api/interview/retry` | Re-answer a question; returns the attempt diff |
+| `POST` | `/api/interview/rescore` | Re-score a corrected transcript in place |
 | `GET` | `/api/interview/state` · `POST .../reset` | Session state / reset |
+| `GET` | `/api/progress` | Longitudinal improvement from stored attempts |
 | `GET` | `/api/history` · `/export` · `/import` · `/clear` · `/session/{id}` | Local practice history |
 | `GET` | `/api/eval/error-bars` | Published validation (read-only) |
 

@@ -26,7 +26,7 @@ import WhereItRuns from "@/components/WhereItRuns"
 import ProgressPanel from "@/components/ProgressPanel"
 import ValidationPanel from "@/components/ValidationPanel"
 import { useVoice, type ChatStage } from "@/hooks/useVoice"
-import { useInterview } from "@/hooks/useInterview"
+import { useInterview, apiFetch } from "@/hooks/useInterview"
 import { useFaceAnalysis } from "@/hooks/useFaceAnalysis"
 
 type Msg = { id: number; role: "user" | "aria"; text: string }
@@ -180,14 +180,17 @@ export default function App() {
       // misheard word can still be corrected and the answer re-scored.
       if (mode === "interview") {
         const setup = face.endTurn()
+        const spokenSeconds = getSpeechDuration()
         if (interview.questions.length > 0) {
           if (interview.retryTarget)
             void interview.retryAnswer(
               text,
               setup,
-              interview.retryTarget.question.id
+              interview.retryTarget.question.id,
+              false,
+              spokenSeconds
             )
-          else void interview.submitAnswer(text, setup, false, "voice")
+          else void interview.submitAnswer(text, setup, false, "voice", spokenSeconds)
         } else {
           void interview.submitAnswer(text, setup) // surfaces the error
         }
@@ -196,7 +199,8 @@ export default function App() {
     [mode, interview, handleTranscript, face]
   )
 
-  const { stage, levels, error, start, stop, debug } = useVoice(router, autoStop)
+  const { stage, levels, error, start, stop, debug, getSpeechDuration } =
+    useVoice(router, autoStop)
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -253,7 +257,9 @@ export default function App() {
         void interview.retryAnswer(
           text,
           face.endTurn(),
-          interview.retryTarget.question.id
+          interview.retryTarget.question.id,
+          false,
+          null
         )
       else void interview.submitAnswer(text, face.endTurn())
       return
@@ -280,7 +286,7 @@ export default function App() {
       return
     }
     setMessages([])
-    void fetch("/api/reset", { method: "POST" })
+    void apiFetch("/api/reset", { method: "POST" })
   }
 
   const micBusy = stage === "transcribing"
@@ -312,7 +318,7 @@ export default function App() {
                 AI
               </span>
             </div>
-            <p className="text-[10px] text-white/40 tracking-wide hidden sm:block">voice interview coach</p>
+            <p className="text-[10px] text-white/55 tracking-wide hidden sm:block">voice interview coach</p>
           </div>
         </div>
 
@@ -327,8 +333,9 @@ export default function App() {
             <button
               key={value}
               onClick={() => { stopPlayback(); setMode(value) }}
-              className={`relative flex items-center gap-1.5 rounded-full px-4 py-1.5 text-[11px] font-medium transition-all duration-200 ${
-                mode === value ? "text-white" : "text-white/45 hover:text-white/70"
+              aria-pressed={mode === value}
+              className={`relative flex items-center gap-1.5 rounded-full px-4 py-1.5 text-[11px] font-medium transition-all duration-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-iris-400 ${
+                mode === value ? "text-white" : "text-white/55 hover:text-white/70"
               }`}
             >
               {mode === value && (
@@ -352,8 +359,10 @@ export default function App() {
           <button
             onClick={() => setShowDebug((v) => !v)}
             title="Mic diagnostics (D)"
+            aria-label="Mic diagnostics"
+            aria-pressed={showDebug}
             className={`flex size-8 items-center justify-center rounded-xl transition hover:bg-white/10 ${
-              showDebug ? "text-mint-400" : "text-white/40 hover:text-white/70"
+              showDebug ? "text-mint-400" : "text-white/55 hover:text-white/70"
             }`}
           >
             <Bug className="size-4" />
@@ -410,6 +419,10 @@ export default function App() {
             }}
             onCancelRetry={() => interview.cancelRetry()}
             behaviour={interview.behaviour}
+            sow_report={interview.sow_report}
+            readiness={interview.readiness}
+            learning_plan={interview.learning_plan}
+            interview_length={interview.interview_length}
           />
         </main>
       ) : (
@@ -485,7 +498,7 @@ export default function App() {
                   className={`max-w-[72%] rounded-2xl px-4 py-3 text-sm leading-relaxed shadow-lg ${
                     m.role === "aria"
                       ? "rounded-tl-sm border border-white/[0.08] bg-white/[0.05] text-white/88 backdrop-blur-xl shadow-black/20"
-                      : "rounded-tr-sm bg-gradient-to-br from-iris-600 to-iris-500 text-white shadow-iris-600/20"
+                      : "rounded-tr-sm bg-gradient-to-br from-iris-700 to-iris-600 text-white shadow-iris-600/20"
                   }`}
                 >
                   {m.text}
@@ -514,7 +527,7 @@ export default function App() {
                     }}
                   />
                 </div>
-                <div className="flex items-center gap-2 rounded-2xl rounded-tl-sm border border-white/[0.08] bg-white/[0.05] px-4 py-2.5 text-xs text-white/40 backdrop-blur-xl">
+                <div className="flex items-center gap-2 rounded-2xl rounded-tl-sm border border-white/[0.08] bg-white/[0.05] px-4 py-2.5 text-xs text-white/55 backdrop-blur-xl">
                   Aria is thinking…
                 </div>
               </motion.div>
@@ -547,7 +560,7 @@ export default function App() {
         {/* Bolt-style composer — BorderBeam wraps while Aria is speaking */}
         <div className="mx-auto max-w-2xl">
           <ComposerBeamWrapper speaking={speaking}>
-            <div className="rounded-2xl border border-white/[0.08] bg-[#1e1e22] shadow-[0_0_0_1px_rgba(255,255,255,0.04),0_4px_24px_rgba(0,0,0,0.4)] overflow-hidden">
+            <div className="rounded-2xl border border-white/[0.4] bg-[#1e1e22] shadow-[0_0_0_1px_rgba(255,255,255,0.04),0_4px_24px_rgba(0,0,0,0.4)] overflow-hidden">
               {/* Textarea row */}
               <div className="px-4 pt-4 pb-2">
                 <textarea
@@ -564,7 +577,7 @@ export default function App() {
                     STAGE_LABEL[stage]
                   }
                   rows={1}
-                  className="w-full resize-none bg-transparent text-sm text-white/90 placeholder:text-white/30 outline-none disabled:opacity-50 min-h-[32px] max-h-[160px] leading-relaxed"
+                  className="w-full resize-none bg-transparent text-sm text-white/90 placeholder:text-white/50 outline-none disabled:opacity-50 min-h-[32px] max-h-[160px] leading-relaxed"
                   style={{ height: "32px" }}
                 />
               </div>
@@ -600,9 +613,9 @@ export default function App() {
                       <span className="text-xs truncate">Speaking — tap mic or Space to jump in</span>
                     </div>
                   ) : thinking ? (
-                    <span className="text-xs text-white/35">Thinking — interrupt with voice or text</span>
+                    <span className="text-xs text-white/50">Thinking — interrupt with voice or text</span>
                   ) : (
-                    <span className="text-xs text-white/25">
+                    <span className="text-xs text-white/50">
                       {mode === "interview" && interview.analyzing ? "Analysing resume…" :
                        mode === "interview" && interview.scoring ? "Scoring answer…" :
                        "Space · push-to-talk · Shift+Enter for newline"}
@@ -612,8 +625,10 @@ export default function App() {
                 {/* Auto toggle */}
                 <button
                   onClick={() => setAutoStop((v) => !v)}
+                  aria-label={`Auto-stop ${autoStop ? "on" : "off"}`}
+                  aria-pressed={autoStop}
                   className={`shrink-0 rounded-full border px-2.5 py-1 text-[10px] tracking-wide uppercase transition ${
-                    autoStop ? "border-mint-400/40 bg-mint-400/10 text-mint-400" : "border-white/10 bg-white/[0.04] text-white/35 hover:text-white/60"
+                    autoStop ? "border-mint-400/40 bg-mint-400/10 text-mint-400" : "border-white/10 bg-white/[0.04] text-white/50 hover:text-white/60"
                   }`}
                 >
                   {autoStop ? "auto" : "manual"}
@@ -622,6 +637,7 @@ export default function App() {
                 <button
                   onClick={() => onSubmitText()}
                   disabled={!draft.trim() || isListening || stage === "transcribing"}
+                  aria-label="Send message"
                   className="flex size-9 items-center justify-center rounded-xl bg-iris-600 text-white shadow-md shadow-iris-600/30 transition hover:bg-iris-500 disabled:pointer-events-none disabled:opacity-30"
                 >
                   <Send className="size-4" />

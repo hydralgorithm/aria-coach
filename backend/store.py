@@ -149,16 +149,16 @@ def _insert_answer(conn: sqlite3.Connection, session_id: int, a: dict) -> int:
             persona, attempt, edited, score, breakdown, answer)
            VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
         (
-            int(session_id or 0),
+            _to_int(session_id),
             str(a.get("created_at") or _now()),
-            int(a.get("question_id") or 0),
+            _to_int(a.get("question_id")),
             str(a.get("question") or "")[:600],
             str(a.get("competency") or "")[:80],
             str(a.get("qtype") or "")[:40],
             str(a.get("persona") or ""),
-            int(a.get("attempt") or 1),
+            _to_int(a.get("attempt"), 1),
             1 if a.get("edited") else 0,
-            int(a.get("score") or 0),
+            _to_int(a.get("score")),
             breakdown,
             str(a.get("answer") or "")[:8000],
         ),
@@ -537,9 +537,23 @@ def clear_aria_runs(source: str | None = None) -> None:
             conn.execute("DELETE FROM eval_runs")
 
 
+def _to_int(value, default: int = 0) -> int:
+    """Coerce an imported value to int without letting a corrupt row abort the import."""
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
 def import_json(data: dict) -> dict:
+    if not isinstance(data, dict):
+        raise ValueError("import payload must be a JSON object")
     sessions_in = data.get("sessions") or []
     answers_in = data.get("answers") or []
+    if not isinstance(sessions_in, list):
+        sessions_in = []
+    if not isinstance(answers_in, list):
+        answers_in = []
     id_map: dict[int, int] = {}
     with _db() as conn:
         for s in sessions_in:
@@ -554,21 +568,29 @@ def import_json(data: dict) -> dict:
                     str(s.get("profile") or "")[:400],
                 ),
             )
-            id_map[int(s.get("id") or 0)] = int(cur.lastrowid)
+            id_map[_to_int(s.get("id"))] = int(cur.lastrowid)
         for a in answers_in:
-            _insert_answer(conn, id_map.get(int(a.get("session_id") or 0), 0), a)
+            if not isinstance(a, dict):
+                continue
+            _insert_answer(
+                conn,
+                id_map.get(_to_int(a.get("session_id")), 0),
+                a,
+            )
         # chat sessions are plain integers, so offset them to avoid colliding
         # with conversations already on this device
         chat_in = data.get("chat_turns") or []
         row = conn.execute("SELECT COALESCE(MAX(session), 0) s FROM chat_turns").fetchone()
         offset = int(row["s"] or 0)
         for t in chat_in:
+            if not isinstance(t, dict):
+                continue
             conn.execute(
                 """INSERT INTO chat_turns (created_at, session, prompt, reply)
                    VALUES (?,?,?,?)""",
                 (
                     str(t.get("created_at") or _now()),
-                    int(t.get("session") or 1) + offset,
+                    _to_int(t.get("session"), 1) + offset,
                     str(t.get("prompt") or "")[:4000],
                     str(t.get("reply") or "")[:4000],
                 ),

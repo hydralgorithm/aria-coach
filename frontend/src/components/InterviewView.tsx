@@ -47,7 +47,20 @@ import type {
   Question,
   ScoreRecord,
   StructuredResume,
+  SowReport,
+  Readiness,
+  LearningItem,
+  LearningPlan,
 } from "@/hooks/useInterview"
+import {
+  ReadinessPanel,
+  LearningPlanPanel,
+  SowPanel,
+  SpeechCoachPanel,
+  TopWeaknesses,
+  RetestPanel,
+} from "@/components/InsightsPanels"
+import { rubricFor, scoringLine } from "@/lib/rubrics"
 
 const PERSONA_ORBS: Record<string, { color: AvatarColor; shape: AvatarShape }> = {
   standard: { color: "indigo", shape: "circle" },
@@ -93,17 +106,14 @@ const ACCENTS: Record<
   },
 }
 
-const DIMS: [string, string, number][] = [
-  ["relevance_structure", "Structure (STAR)", 25],
-  ["specificity_evidence", "Evidence & numbers", 25],
-  ["impact_ownership", "Impact & ownership", 20],
-  ["communication", "Clarity", 15],
-  ["self_awareness", "Self-awareness", 15],
-]
-
-const DIM_LABELS: Record<string, string> = Object.fromEntries(
-  DIMS.map(([key, label]) => [key, label])
-)
+/**
+ * Canonical rubrics live in @/lib/rubrics and mirror backend/coach.py. A
+ * technical answer is judged on correctness, reasoning, trade-offs, edge cases
+ * and clarity - never on STAR structure, so the UI must not call it an HR
+ * scorecard.
+ */
+const RETEST_HINT =
+  "Nothing in this session measured that yet, so there is nothing honest to re-test here. The next session's question set covers it."
 
 type Props = {
   filename: string
@@ -137,6 +147,11 @@ type Props = {
   onCancelRetry: () => void
   behaviour?: BehaviourStats
   setupSummary?: SetupSummaryReport | null
+  sow_report?: SowReport
+  readiness?: Readiness
+  learning_plan?: LearningPlan
+  /** the configured session length, straight from coach.INTERVIEW_LENGTH */
+  interview_length?: number
   parse?: {
     method?: string
     pages?: number
@@ -178,6 +193,10 @@ export default function InterviewView({
   onCancelRetry,
   behaviour,
   setupSummary,
+  sow_report,
+  readiness,
+  learning_plan,
+  interview_length,
   parse,
 }: Props) {
   const fileRef = useRef<HTMLInputElement>(null)
@@ -200,13 +219,15 @@ export default function InterviewView({
         </h2>
         <p className="mt-2 text-sm leading-relaxed text-white/50 max-w-lg mx-auto">
           Pick who you want to face. Aria reads your resume, writes questions
-          from your real experience, and scores each answer like an HR
-          scorecard.
+          from your real experience, and scores every answer against a
+          published rubric - technical questions on correctness, reasoning,
+          trade-offs and edge cases; behavioural questions on structure,
+          evidence and ownership.
         </p>
 
         {/* Interviewer personality */}
         <div className="mt-8 text-left">
-          <p className="mb-3 text-[10px] uppercase tracking-widest text-white/35">
+          <p className="mb-3 text-[10px] uppercase tracking-widest text-white/50">
             Who is interviewing you?
           </p>
           <div className="grid gap-2.5 sm:grid-cols-2">
@@ -236,12 +257,12 @@ export default function InterviewView({
                     >
                       {p.label}
                       {p.advanced && (
-                        <span className="rounded-full border border-white/15 bg-white/5 px-1.5 py-px text-[9px] font-medium uppercase tracking-wider text-white/45">
+                        <span className="rounded-full border border-white/15 bg-white/5 px-1.5 py-px text-[9px] font-medium uppercase tracking-wider text-white/55">
                           advanced
                         </span>
                       )}
                     </span>
-                    <span className="mt-0.5 block text-xs leading-relaxed text-white/45">
+                    <span className="mt-0.5 block text-xs leading-relaxed text-white/55">
                       {p.tagline}
                     </span>
                   </span>
@@ -284,7 +305,7 @@ export default function InterviewView({
                   <p className="text-sm font-medium">
                     Analyzing your resume & tailoring questions…
                   </p>
-                  <p className="text-xs text-white/40">
+                  <p className="text-xs text-white/55">
                     Extracting skills, career highlights, and scoring criteria
                   </p>
                 </div>
@@ -295,7 +316,7 @@ export default function InterviewView({
                     Drop your resume here, or{" "}
                     <span className="text-iris-300 font-medium">browse</span>
                   </p>
-                  <p className="text-xs text-white/30">
+                  <p className="text-xs text-white/50">
                     PDF or TXT · scanned PDFs are OCR'd automatically
                   </p>
                 </div>
@@ -318,7 +339,7 @@ export default function InterviewView({
 
         {/* Optional job description, captured before the first upload */}
         <div className="mt-4 text-left">
-          <p className="mb-1.5 text-[10px] uppercase tracking-widest text-white/35">
+          <p className="mb-1.5 text-[10px] uppercase tracking-widest text-white/50">
             Job description (optional) — grounds the questions in the role
           </p>
           <textarea
@@ -344,6 +365,47 @@ export default function InterviewView({
     ? Math.round(answers.reduce((s, a) => s + a.score, 0) / answers.length)
     : 0
 
+  /**
+   * The configured session length comes from the backend
+   * (coach.INTERVIEW_LENGTH), so the number here can never drift from the
+   * number of questions actually generated.
+   */
+  const planned = interview_length ?? questions.length
+  const lengthLabel =
+    planned && planned !== questions.length
+      ? `${questions.length} of ${planned} questions`
+      : `${questions.length} questions`
+
+  /**
+   * Map a plan item to an answered question we can honestly re-test right now.
+   * Only measured weak competencies map: the backend names the competency, and
+   * we look for a question actually scored on it. Nothing is guessed - a JD
+   * gap with no matching answered question gets no button, not a fake one.
+   */
+  const retestFor = (item: LearningItem): RetryTarget | null => {
+    if (item.origin !== "weak_competency") return null
+    const competency = item.topic
+      .replace(/\s*interview technique$/i, "")
+      .trim()
+      .toLowerCase()
+    if (!competency) return null
+    const index = questions.findIndex(
+      (q, i) =>
+        i < answers.length &&
+        (q.competency || "").trim().toLowerCase() === competency
+    )
+    return index >= 0 ? { question: questions[index], index } : null
+  }
+
+  const planPanel = learning_plan ? (
+    <LearningPlanPanel
+      plan={learning_plan}
+      retestFor={retestFor}
+      onRetest={(t) => onRetry(t.question, t.index)}
+      retestHint={RETEST_HINT}
+    />
+  ) : null
+
   return (
     <div className="mx-auto max-w-2xl space-y-4 px-6 pb-4">
       {/* interviewer + resume summary */}
@@ -352,12 +414,12 @@ export default function InterviewView({
           <div className="flex items-start gap-3">
             <FileText className="mt-0.5 size-4 shrink-0 text-iris-300" />
             <div>
-              <p className="text-xs uppercase tracking-wider text-white/40">
+              <p className="text-xs uppercase tracking-wider text-white/55">
                 {filename}
                 {structured.years_experience
                   ? ` · ${structured.years_experience} yrs`
                   : ""}{" "}
-                · {questions.length} questions
+                · {lengthLabel}
                 {activePersona ? ` · ${activePersona.label}` : ""}
               </p>
               <p className="mt-1 text-sm text-white/75">{profile}</p>
@@ -410,7 +472,7 @@ export default function InterviewView({
         )}
 
         {(structured.education?.length ?? 0) > 0 && (
-          <p className="mt-3 flex items-center gap-1.5 text-xs text-white/45">
+          <p className="mt-3 flex items-center gap-1.5 text-xs text-white/55">
             <GraduationCap className="size-3.5" />
             {structured.education
               ?.map((e) => [e.degree, e.institution, e.year].filter(Boolean).join(", "))
@@ -429,7 +491,7 @@ export default function InterviewView({
             grounding
           </p>
           {(coverage?.requirements?.length ?? 0) > 0 && (
-            <span className="text-[10px] text-white/45">
+            <span className="text-[10px] text-white/55">
               {coverage?.matched ?? 0} matched · {coverage?.gaps ?? 0} gaps
             </span>
           )}
@@ -438,7 +500,7 @@ export default function InterviewView({
         {answers.length === 0 ? (
           <JdEditor initial={jd ?? ""} busy={analyzing} onApply={onApplyJd} />
         ) : (
-          <p className="mt-1 text-[11px] text-white/40">
+          <p className="mt-1 text-[11px] text-white/55">
             Questions are locked once you start answering.
           </p>
         )}
@@ -448,9 +510,12 @@ export default function InterviewView({
         )}
       </Card>
 
+      {/* Evidence reports are rendered in the session flow below, not above
+          it - see SESSION COMPLETE -> readiness -> weaknesses -> plan. */}
+
       {/* Switch interviewer mid-session */}
       <div className="flex flex-wrap items-center gap-1.5">
-        <span className="mr-1 text-[10px] uppercase tracking-widest text-white/30">
+        <span className="mr-1 text-[10px] uppercase tracking-widest text-white/50">
           Interviewer
         </span>
         {personas.map((p) => {
@@ -465,7 +530,7 @@ export default function InterviewView({
               className={`flex items-center gap-2 rounded-full border px-3 py-1.5 text-[11px] font-medium transition-all duration-200 ${
                 active
                   ? `${accent.ring} ${accent.bg} ${accent.text} shadow-sm`
-                  : "border-white/[0.08] bg-white/[0.04] text-white/45 hover:bg-white/[0.08] hover:text-white/75"
+                  : "border-white/[0.08] bg-white/[0.04] text-white/55 hover:bg-white/[0.08] hover:text-white/75"
               }`}
             >
               <div className="shrink-0 scale-75 -my-1">
@@ -473,7 +538,7 @@ export default function InterviewView({
               </div>
               {p.label}
               {p.advanced && (
-                <span className="text-[8px] uppercase tracking-wider text-white/35">
+                <span className="text-[8px] uppercase tracking-wider text-white/50">
                   advanced
                 </span>
               )}
@@ -483,7 +548,13 @@ export default function InterviewView({
       </div>
 
       {/* progress chips */}
-      <div className="flex flex-wrap items-center gap-1.5">
+      <div
+        className="flex flex-wrap items-center gap-1.5"
+        data-testid="session-progress"
+        data-answered={answers.length}
+        data-planned={planned || 0}
+        data-question-count={questions.length}
+      >
         {questions.map((q, i) => {
           const record = answers[i]
           const isCurrent = !done && i === answers.length
@@ -496,7 +567,7 @@ export default function InterviewView({
                   ? "border-mint-400/40 bg-mint-400/10 text-mint-400"
                   : isCurrent
                     ? "border-iris-400/60 bg-iris-500/15 text-white"
-                    : "border-white/10 bg-white/5 text-white/40"
+                    : "border-white/10 bg-white/5 text-white/55"
               }`}
             >
               {record ? record.score : i + 1}
@@ -504,7 +575,7 @@ export default function InterviewView({
           )
         })}
         {answers.length > 0 && (
-          <span className="ml-2 text-xs text-white/45">
+          <span className="ml-2 text-xs text-white/55">
             average {average}/100
           </span>
         )}
@@ -563,7 +634,7 @@ export default function InterviewView({
                           </span>
                         )}
                       </div>
-                      <p className="text-[11px] text-white/45 line-clamp-1">
+                      <p className="text-[11px] text-white/55 line-clamp-1">
                         {activePersona?.tagline}
                       </p>
                     </div>
@@ -580,11 +651,14 @@ export default function InterviewView({
                   </div>
                 </div>
 
-                <p className="text-base sm:text-lg leading-relaxed text-white font-medium">
-                  {currentQuestion.question}
-                </p>
+            <p
+              className="text-base sm:text-lg leading-relaxed text-white font-medium"
+              data-testid="current-question"
+            >
+              {currentQuestion.question}
+            </p>
                 {currentQuestion.why && (
-                  <p className="mt-2.5 flex items-start gap-1.5 text-xs text-white/45">
+                  <p className="mt-2.5 flex items-start gap-1.5 text-xs text-white/55">
                     <Lightbulb className="mt-0.5 size-3.5 shrink-0 text-amber-300/80" />
                     {currentQuestion.why}
                   </p>
@@ -594,6 +668,7 @@ export default function InterviewView({
                   <button
                     onClick={listening ? stop : start}
                     disabled={scoring || speaking}
+                    aria-label={listening ? "Stop recording" : "Answer out loud"}
                     className={`relative flex size-12 shrink-0 items-center justify-center rounded-2xl transition-all duration-200 disabled:pointer-events-none disabled:opacity-40 ${
                       listening
                         ? "bg-gradient-to-br from-rose-500 to-red-500 shadow-lg shadow-red-500/40"
@@ -609,7 +684,7 @@ export default function InterviewView({
                       <Mic className="size-5 text-white" />
                     )}
                   </button>
-                  <div className="flex h-7 flex-1 items-center gap-2">
+                  <div className="flex h-7 flex-1 items-center gap-2" aria-hidden="true">
                     {listening ? (
                       <div className="flex h-7 items-end gap-0.5">
                         {levels.map((l, i) => (
@@ -623,10 +698,10 @@ export default function InterviewView({
                     ) : scoring ? (
                       <div className="flex items-center gap-2 text-xs text-iris-200">
                         <ThinkingOrb state="solving" size={20} theme="dark" />
-                        <span>Scoring your answer against the HR scorecard…</span>
+                        <span>{scoringLine(undefined, currentQuestion.type)}</span>
                       </div>
                     ) : (
-                      <span className="text-xs text-white/40">
+                      <span className="text-xs text-white/55">
                         {speaking
                           ? `${activePersona?.label ?? "The interviewer"} is speaking… (tap mic or Space to jump in)`
                           : "Tap the mic and answer out loud (pause when done)"}
@@ -663,8 +738,7 @@ export default function InterviewView({
               {behaviour && behaviour.answered > 0 && (
                 <div className="mt-4 border-t border-white/10 pt-3">
                   <p className="flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-iris-300">
-                    <Activity className="size-3" /> confidence, measured as
-                    behaviour
+                    <Activity className="size-3" /> practice habits
                   </p>
                   <div className="mt-2 grid grid-cols-4 gap-2">
                     <Stat label="answered" value={`${behaviour.answered}`} />
@@ -672,7 +746,7 @@ export default function InterviewView({
                     <Stat label="retried" value={`${behaviour.retried}`} />
                     <Stat label="improved" value={`${behaviour.improved}`} />
                   </div>
-                  <p className="mt-2 text-[10px] text-white/35">
+                  <p className="mt-2 text-[10px] text-white/50">
                     Choices you made across your local practice history — never
                     read from your face.
                   </p>
@@ -714,7 +788,7 @@ export default function InterviewView({
                       person visible in frame.
                     </p>
                   )}
-                  <p className="mt-2 text-[10px] text-white/35">
+                  <p className="mt-2 text-[10px] text-white/50">
                     Framing and visibility only — never emotion, never scored.
                   </p>
                 </div>
@@ -723,6 +797,52 @@ export default function InterviewView({
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* ── The documented completion order ────────────────────────────────
+          SESSION COMPLETE (the summary card above) -> READINESS SNAPSHOT ->
+          TOP WEAKNESSES -> PERSONALIZED LEARNING PLAN -> resources + drills
+          + re-test -> previous/target -> retry action. Every panel below is
+          rebuilt from the session that just finished; no refresh, no hidden
+          debug panel. The same panels stay live mid-session so the candidate
+          can watch the plan re-form after every answer. */}
+      {done ? (
+        <motion.div
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="space-y-4"
+        >
+          {readiness && (
+            <ReadinessPanel readiness={readiness} heading="Readiness snapshot" />
+          )}
+          <TopWeaknesses report={sow_report} />
+          {planPanel}
+          <RetestPanel
+            answers={answers}
+            questions={questions}
+            retryResults={retryResults}
+            onRetry={onRetry}
+          />
+          {sow_report && (
+            <details className="rounded-2xl border border-white/[0.07] bg-white/[0.02] p-4">
+              <summary className="cursor-pointer text-xs font-semibold uppercase tracking-wider text-white/70 hover:text-white/90">
+                Full strengths / weaknesses / opportunities report
+              </summary>
+              <div className="mt-3">
+                <SowPanel report={sow_report} />
+              </div>
+            </details>
+          )}
+        </motion.div>
+      ) : (
+        <motion.div
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="space-y-4"
+        >
+          {readiness && <ReadinessPanel readiness={readiness} />}
+          {planPanel}
+        </motion.div>
+      )}
 
       {error && (
         <p className="rounded-xl border border-red-400/30 bg-red-500/10 px-3 py-2 text-xs text-red-300">
@@ -794,7 +914,7 @@ function RetryCard({
         </Button>
       </div>
       <p className="mt-2 text-sm text-white/80">{target.question.question}</p>
-      <p className="mt-1 text-[11px] leading-relaxed text-white/45">
+      <p className="mt-1 text-[11px] leading-relaxed text-white/55">
         Same question, same rubric. Aria will show you exactly what changed —
         including any numbers you added.
       </p>
@@ -829,7 +949,7 @@ function RetryCard({
               />
             ))
           ) : (
-            <span className="text-xs text-white/40">
+            <span className="text-xs text-white/55">
               {speaking
                 ? "Aria is speaking… (tap mic or Space to jump in)"
                 : "Tap the mic and answer again, or type below"}
@@ -853,7 +973,7 @@ function RetryCard({
           {retrying ? <Loader2 className="animate-spin" /> : <Repeat />}
           {retrying ? "Scoring retry…" : "Score this retry"}
         </Button>
-        <span className="text-[10px] text-white/40">
+        <span className="text-[10px] text-white/55">
           The first attempt is kept — nothing is overwritten.
         </span>
       </div>
@@ -864,7 +984,7 @@ function RetryCard({
 function Stat({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-xl bg-white/[0.05] px-2.5 py-1.5">
-      <p className="text-[10px] uppercase tracking-wider text-white/40">
+      <p className="text-[10px] uppercase tracking-wider text-white/55">
         {label}
       </p>
       <p className="text-sm text-white/85">{value}</p>
@@ -896,7 +1016,7 @@ function JdEditor({
           {busy ? <Loader2 className="animate-spin" /> : <Target />}
           {busy ? "Reading the JD…" : "Ground questions in this JD"}
         </Button>
-        <span className="text-[10px] text-white/40">
+        <span className="text-[10px] text-white/55">
           Questions are regenerated from the gaps it finds.
         </span>
       </div>
@@ -949,7 +1069,7 @@ function CoverageList({ coverage }: { coverage: Coverage }) {
               <span className="min-w-0">
                 <span className="flex flex-wrap items-center gap-1.5">
                   <span className="text-white/80">{r.requirement}</span>
-                  <span className="rounded-full border border-white/10 bg-white/5 px-1.5 py-px text-[9px] uppercase tracking-wider text-white/45">
+                  <span className="rounded-full border border-white/10 bg-white/5 px-1.5 py-px text-[9px] uppercase tracking-wider text-white/55">
                     {r.importance}
                   </span>
                   <span
@@ -963,7 +1083,7 @@ function CoverageList({ coverage }: { coverage: Coverage }) {
                     “{r.evidence}”
                   </span>
                 ) : (
-                  <span className="mt-0.5 block text-[10px] text-white/40">
+                  <span className="mt-0.5 block text-[10px] text-white/55">
                     no resume evidence yet
                     {r.why ? ` — ${r.why}` : ""}
                   </span>
@@ -1010,7 +1130,7 @@ function EvidenceRow({
         )}
         <span
           className={`mt-1 inline-block rounded-full border border-white/10 bg-white/5 px-1.5 py-px text-[9px] uppercase tracking-wider ${
-            item.source === "general" ? "text-white/40" : "text-white/55"
+            item.source === "general" ? "text-white/55" : "text-white/55"
           }`}
         >
           {sourceLabel}
@@ -1092,7 +1212,7 @@ function ParseAuditPanel({
                     {f.detail}
                   </span>
                   {f.evidence && (
-                    <span className="mt-0.5 block truncate font-mono text-[10px] text-white/30">
+                    <span className="mt-0.5 block truncate font-mono text-[10px] text-white/50">
                       e.g. {f.evidence}
                     </span>
                   )}
@@ -1103,7 +1223,7 @@ function ParseAuditPanel({
         )}
 
         <div>
-          <p className="text-[10px] uppercase tracking-wider text-white/35">
+          <p className="text-[10px] uppercase tracking-wider text-white/50">
             What the parser read
           </p>
           <pre className="mt-1 max-h-56 overflow-auto whitespace-pre-wrap rounded-xl border border-white/10 bg-black/30 px-3 py-2 font-mono text-[10px] leading-relaxed text-white/60">
@@ -1128,7 +1248,7 @@ function ParseAuditPanel({
           )}
         </div>
 
-        <p className="text-[10px] leading-relaxed text-white/35">
+        <p className="text-[10px] leading-relaxed text-white/50">
           ATS-friendly fixes: single-column layout, no tables, real text instead
           of images, conventional headings, and an email in the body.
         </p>
@@ -1168,7 +1288,7 @@ function AnswerTranscript({
   return (
     <div className="mt-3 rounded-xl bg-white/[0.04] px-3 py-2">
       <p className="text-xs text-white/50">
-        <span className="text-white/40">
+        <span className="text-white/55">
           {record.source === "voice" ? "mic heard: " : "you typed: "}
         </span>
         {record.answer}
@@ -1177,7 +1297,7 @@ function AnswerTranscript({
       {correctable && (
         <>
           {record.edited && (
-            <p className="mt-2 flex flex-wrap items-center gap-1.5 text-[10px] text-white/45">
+            <p className="mt-2 flex flex-wrap items-center gap-1.5 text-[10px] text-white/55">
               <RotateCcw className="size-3 text-amber-300" />
               re-scored after your correction
               {typeof record.score_before === "number" && (
@@ -1239,7 +1359,7 @@ function AnswerTranscript({
                   Cancel
                 </Button>
                 {!dirty && !rescoring && (
-                  <span className="text-[10px] text-white/40">
+                  <span className="text-[10px] text-white/55">
                     edit a word to enable re-scoring
                   </span>
                 )}
@@ -1274,6 +1394,8 @@ function ScoreCard({
   rescoring?: boolean
 }) {
   const [showBreakdown, setShowBreakdown] = useState(false)
+  /** the rubric this answer was actually scored against (see @/lib/rubrics) */
+  const rubric = rubricFor(record.rubric, record.type)
   const canRetry =
     !!question && index !== undefined && !!onRetry && !retrying && !retryTarget
   const tone =
@@ -1287,9 +1409,12 @@ function ScoreCard({
     <Card className="p-4">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <p className="text-xs uppercase tracking-wider text-white/40">
+          <p className="text-xs uppercase tracking-wider text-white/55">
             {record.type}
             {record.competency ? ` · ${record.competency}` : ""}
+            <span className="ml-1.5 rounded-full border border-iris-400/25 bg-iris-500/10 px-1.5 py-px text-[9px] text-iris-200/90">
+              {rubric.label}
+            </span>
           </p>
           <p className="mt-1 text-sm text-white/85">{record.question}</p>
         </div>
@@ -1306,7 +1431,9 @@ function ScoreCard({
         <p className="mt-3 text-sm text-white/70">{record.verdict}</p>
       )}
 
-      {retry?.diff && <RetryDiffBlock diff={retry.diff} />}
+      {retry?.diff && (
+        <RetryDiffBlock diff={retry.diff} rubric={record.rubric ?? record.type} />
+      )}
 
       {record.breakdown && (
         <div className="mt-3">
@@ -1314,16 +1441,20 @@ function ScoreCard({
             onClick={() => setShowBreakdown((v) => !v)}
             className="text-xs text-iris-300 hover:text-iris-200"
           >
-            {showBreakdown ? "Hide" : "Show"} HR scorecard breakdown
+            {showBreakdown ? "Hide" : "Show"} {rubric.label.toLowerCase()}{" "}
+            breakdown
           </button>
+          <p className="mt-1 text-[10px] leading-snug text-white/50">
+            {rubric.summary}
+          </p>
           {showBreakdown && (
             <ul className="mt-2 space-y-1.5">
-              {DIMS.map(([key, label, max]) => {
+              {rubric.dimensions.map(({ key, label, max }) => {
                 const value = record.breakdown?.[key] ?? 0
                 const pct = Math.round((value / max) * 100)
                 return (
                   <li key={key} className="flex items-center gap-2 text-xs">
-                    <span className="w-32 shrink-0 text-white/45">{label}</span>
+                    <span className="w-32 shrink-0 text-white/55">{label}</span>
                     <span className="h-1.5 flex-1 overflow-hidden rounded-full bg-white/10">
                       <span
                         className={`block h-full rounded-full ${
@@ -1428,6 +1559,8 @@ function ScoreCard({
         </p>
       )}
 
+      {record.speech && <SpeechCoachPanel metrics={record.speech} />}
+
       {record.answer_revision && (
         <details className="mt-3 group">
           <summary className="flex cursor-pointer items-center gap-1.5 text-xs text-iris-300 hover:text-iris-200">
@@ -1436,7 +1569,7 @@ function ScoreCard({
           <p className="mt-2 rounded-xl border border-iris-400/20 bg-iris-500/[0.07] px-3 py-2 text-xs leading-relaxed text-white/75">
             {record.answer_revision}
           </p>
-          <p className="mt-1.5 text-[10px] text-white/40">
+          <p className="mt-1.5 text-[10px] text-white/55">
             Your own words, tightened. Placeholders like [add metric] mark facts
             only you can supply — Aria never invents a number for you.
           </p>
@@ -1451,7 +1584,7 @@ function ScoreCard({
           >
             <Repeat /> Retry this question
           </Button>
-          <span className="ml-2 text-[10px] text-white/40">
+          <span className="ml-2 text-[10px] text-white/55">
             Same rubric — Aria shows what changed.
           </span>
         </div>
@@ -1461,8 +1594,15 @@ function ScoreCard({
 }
 
 /** Deterministic side-by-side of a retry against the first attempt. */
-function RetryDiffBlock({ diff }: { diff: RetryDiff }) {
+function RetryDiffBlock({
+  diff,
+  rubric,
+}: {
+  diff: RetryDiff
+  rubric?: string | null
+}) {
   const improved = diff.score_delta >= 0
+  const dims = rubricFor(rubric)
   return (
     <div className="mt-3 rounded-xl border border-iris-400/25 bg-iris-500/[0.07] p-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -1475,7 +1615,7 @@ function RetryDiffBlock({ diff }: { diff: RetryDiff }) {
           }`}
         >
           {diff.score_before}
-          <span className="text-white/40">→</span>
+          <span className="text-white/55">→</span>
           {diff.score_after}
           {improved ? (
             <ArrowUpRight className="size-3.5" />
@@ -1494,11 +1634,12 @@ function RetryDiffBlock({ diff }: { diff: RetryDiff }) {
           .filter((d) => d.delta !== 0)
           .map((d) => (
             <li key={d.key} className="flex items-center gap-2 text-[11px]">
-              <span className="w-32 shrink-0 text-white/45">
-                {DIM_LABELS[d.key] ?? d.key}
+              <span className="w-32 shrink-0 text-white/55">
+                {dims.dimensions.find((x) => x.key === d.key)?.label ??
+                  d.key}
               </span>
               <span className="text-white/55">{d.before}</span>
-              <span className="text-white/25">→</span>
+              <span className="text-white/50">→</span>
               <span className={d.delta > 0 ? "text-mint-400" : "text-red-300"}>
                 {d.after}/{d.max}
               </span>
@@ -1538,13 +1679,13 @@ function RetryDiffBlock({ diff }: { diff: RetryDiff }) {
             </div>
           )}
           {diff.added_words.length > 0 && (
-            <p className="text-[10px] leading-relaxed text-white/45">
+            <p className="text-[10px] leading-relaxed text-white/55">
               <span className="text-mint-400/80">added: </span>
               {diff.added_words.join(", ")}
             </p>
           )}
           {diff.removed_words.length > 0 && (
-            <p className="text-[10px] leading-relaxed text-white/45">
+            <p className="text-[10px] leading-relaxed text-white/55">
               <span className="text-red-300/80">dropped: </span>
               {diff.removed_words.join(", ")}
             </p>
@@ -1552,7 +1693,7 @@ function RetryDiffBlock({ diff }: { diff: RetryDiff }) {
         </div>
       )}
 
-      <p className="mt-2 text-[10px] leading-relaxed text-white/35">
+      <p className="mt-2 text-[10px] leading-relaxed text-white/50">
         A word-level comparison of the two transcripts, not a model's opinion —
         every word is checkable.
       </p>

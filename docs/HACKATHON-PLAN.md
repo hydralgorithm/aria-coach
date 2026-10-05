@@ -28,7 +28,7 @@ brief well and we tie with every other team doing the same thing.
 | 2 | Identify strengths, weaknesses, opportunities | partial — uncalibrated 0–100 number | bands + confidence + evidence (4) |
 | 3 | Conduct mock interviews tailored to user profile | partial — resume only | + JD → requirement/evidence map (6) |
 | 4 | Evaluate performance, provide actionable feedback | partial — generic tips | every claim cites a span (4) |
-| 5 | Recommend personalized learning resources | **missing** | **cut** (see §7) |
+| 5 | Recommend personalized learning resources | **done** — `backend/insights.py:build_learning_plan` + `backend/resources.py` curated catalog | shipped after the §7 cut (see §7) |
 | 6 | Build confidence through continuous practice | **missing** | retry loop + growth history (7) |
 | 7 | Fast, private, accessible, **on-device AI** | partial — LLM + STT call Groq | local STT + local parsing (5) |
 
@@ -304,7 +304,7 @@ because nobody else in the category publishes any validation at all.
 
 | Decision | Reasoning |
 |---|---|
-| Cut personalised learning resources | 1 of 7 objectives; the cheapest one; parse audit covers the ATS line of the brief more directly |
+| ~~Cut~~ **then shipped** personalised learning resources | Originally cut as “1 of 7 objectives; the cheapest one”. Reversed: the PS also asks for *continuous practice*, and a plan that routes the candidate from a measured gap to a real drill and a re-test is what closes that loop. Shipped as `insights.build_learning_plan` → `resources.recommend_for` (17-entry curated catalog, no invented URLs), rendered in the completion flow as SESSION COMPLETE → readiness → top weaknesses → plan → re-test |
 | Keep personas, **delete `score_bias`** | interviewer behaviour differences are real and defensible; silent score arithmetic is not. Personas anchored to documented interviewer types (phone screen, competency-based behavioural, technical deep-dive, systems design, structured panel) so they are citable rather than decorative |
 | Keep webcam, remove affect readouts | strongest technical asset; show it, never score on it (§4) |
 | **No Supabase** — local SQLite + export | contradicts "on-device AI / user data remains secure"; zero rubric points; auth and migrations cost a week |

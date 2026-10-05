@@ -215,12 +215,12 @@ export default function ProgressPanel() {
                   <h3 className="text-xs font-semibold tracking-wider text-white uppercase">
                     Your Progress
                   </h3>
-                  <p className="text-[10px] text-white/40">On-device practice history</p>
+                  <p className="text-[10px] text-white/55">On-device practice history</p>
                 </div>
               </div>
               <button
                 onClick={() => setOpen(false)}
-                className="flex size-7 items-center justify-center rounded-lg text-white/40 hover:bg-white/10 hover:text-white transition"
+                className="flex size-7 items-center justify-center rounded-lg text-white/55 hover:bg-white/10 hover:text-white transition"
                 aria-label="Close"
               >
                 <X className="size-4" />
@@ -240,7 +240,7 @@ export default function ProgressPanel() {
                   <p className="text-[11px] text-white/55">
                     Nothing recorded yet.
                   </p>
-                  <p className="text-[10px] text-white/30 mt-0.5 leading-relaxed">
+                  <p className="text-[10px] text-white/50 mt-0.5 leading-relaxed">
                     Every chat turn and every scored answer is logged here.
                     Send one message in Free chat, or answer a question in
                     Interview coach, and this fills in automatically.
@@ -250,7 +250,7 @@ export default function ProgressPanel() {
 
               {/* Stats 4-column grid */}
               <div>
-                <p className="text-[10px] font-medium uppercase tracking-wider text-white/40 mb-1.5">
+                <p className="text-[10px] font-medium uppercase tracking-wider text-white/55 mb-1.5">
                   Session metrics
                 </p>
                 <div className="grid grid-cols-4 gap-1.5">
@@ -259,28 +259,29 @@ export default function ProgressPanel() {
                   <Stat label="Retried" value={behaviour.retried} />
                   <Stat label="Improved" value={behaviour.improved} />
                 </div>
-                <p className="mt-1.5 text-[10px] text-white/35 leading-tight">
-                  Confidence is measured by behaviour you chose — answered, corrected, retried, improved.
+                <p className="mt-1.5 text-[10px] text-white/50 leading-tight">
+                  Practice habits — behaviour you chose: answered, corrected,
+                  retried, improved. Aria never infers psychological confidence.
                 </p>
               </div>
 
               {/* Per-competency section */}
               <section className="space-y-2">
                 <div className="flex items-center justify-between">
-                  <p className="text-[10px] font-medium uppercase tracking-wider text-white/40">
+                  <p className="text-[10px] font-medium uppercase tracking-wider text-white/55">
                     Competencies
                   </p>
                   {competencies.length > 0 && (
-                    <span className="text-[10px] text-white/30">{competencies.length} tracked</span>
+                    <span className="text-[10px] text-white/50">{competencies.length} tracked</span>
                   )}
                 </div>
 
                 {competencies.length === 0 ? (
                   <div className="rounded-xl border border-dashed border-white/10 p-3 text-center">
-                    <p className="text-[11px] text-white/45">
+                    <p className="text-[11px] text-white/55">
                       No scored answers yet.
                     </p>
-                    <p className="text-[10px] text-white/30 mt-0.5">
+                    <p className="text-[10px] text-white/50 mt-0.5">
                       Answer a question in Interview coach to start tracking skills.
                     </p>
                   </div>
@@ -295,7 +296,7 @@ export default function ProgressPanel() {
                         <span className="min-w-0 flex-1 truncate text-white/80 font-medium">
                           {c.competency}
                         </span>
-                        <span className="shrink-0 text-[10px] text-white/40">
+                        <span className="shrink-0 text-[10px] text-white/55">
                           {c.attempts}×
                         </span>
                         <span className="w-10 shrink-0 text-right font-mono text-[11px] font-semibold text-white/90">
@@ -317,15 +318,15 @@ export default function ProgressPanel() {
               {/* Conversations (free chat) */}
               <section className="space-y-2">
                 <div className="flex items-center justify-between">
-                  <p className="text-[10px] font-medium uppercase tracking-wider text-white/40">
+                  <p className="text-[10px] font-medium uppercase tracking-wider text-white/55">
                     Conversations
                   </p>
-                  <span className="text-[10px] text-white/30">
+                  <span className="text-[10px] text-white/50">
                     {chatTurns} turn{chatTurns === 1 ? "" : "s"}
                   </span>
                 </div>
                 {chatSessions.length === 0 ? (
-                  <p className="text-[11px] text-white/35 italic">
+                  <p className="text-[11px] text-white/50 italic">
                     No chats yet — nothing you say is stored on a server.
                   </p>
                 ) : (
@@ -336,10 +337,10 @@ export default function ProgressPanel() {
                         className="flex items-center justify-between gap-2 rounded-lg px-2 py-1 text-[11px] text-white/60"
                       >
                         <span className="min-w-0 truncate text-white/75">
-                          <span className="text-white/35 font-mono text-[10px]">#{c.session} </span>
+                          <span className="text-white/50 font-mono text-[10px]">#{c.session} </span>
                           {c.preview || "(empty)"}
                         </span>
-                        <span className="shrink-0 text-[10px] text-white/40 font-mono">
+                        <span className="shrink-0 text-[10px] text-white/55 font-mono">
                           {c.turns} turn{c.turns === 1 ? "" : "s"}
                         </span>
                       </div>
@@ -350,11 +351,11 @@ export default function ProgressPanel() {
 
               {/* Recent Sessions */}
               <section className="space-y-2">
-                <p className="text-[10px] font-medium uppercase tracking-wider text-white/40">
+                <p className="text-[10px] font-medium uppercase tracking-wider text-white/55">
                   Recent Sessions
                 </p>
                 {sessions.length === 0 ? (
-                  <p className="text-[11px] text-white/35 italic">No sessions yet.</p>
+                  <p className="text-[11px] text-white/50 italic">No sessions yet.</p>
                 ) : (
                   <div className="space-y-1 rounded-xl border border-white/[0.06] bg-white/[0.02] p-2">
                     {sessions.slice(0, 5).map((s) => (
@@ -366,7 +367,7 @@ export default function ProgressPanel() {
                           {s.filename || "Resume session"}
                           {s.has_jd ? " · +JD" : ""}
                         </span>
-                        <span className="shrink-0 text-[10px] text-white/40 font-mono">
+                        <span className="shrink-0 text-[10px] text-white/55 font-mono">
                           {s.answers ?? 0} ans · <span className="text-white/70">{s.avg_score ?? 0} pts</span>
                         </span>
                       </div>
@@ -451,7 +452,7 @@ export default function ProgressPanel() {
         className={`flex size-8 items-center justify-center rounded-xl transition ${
           open
             ? "bg-iris-500/20 text-iris-300 border border-iris-500/30"
-            : "text-white/40 hover:bg-white/10 hover:text-white/80"
+            : "text-white/55 hover:bg-white/10 hover:text-white/80"
         }`}
       >
         <History className="size-4" />
@@ -465,7 +466,7 @@ function Stat({ label, value }: { label: string; value: number }) {
   return (
     <div className="rounded-xl border border-white/[0.06] bg-white/[0.03] p-2 text-center">
       <p className="text-sm font-semibold text-white/90">{value}</p>
-      <p className="text-[9px] uppercase tracking-wider text-white/40 mt-0.5">{label}</p>
+      <p className="text-[9px] uppercase tracking-wider text-white/55 mt-0.5">{label}</p>
     </div>
   )
 }
@@ -475,5 +476,5 @@ function TrendIcon({ trend }: { trend: number }) {
     return <ArrowUpRight className="size-3.5 shrink-0 text-mint-400" />
   if (trend < 0)
     return <ArrowDownRight className="size-3.5 shrink-0 text-red-400" />
-  return <Minus className="size-3.5 shrink-0 text-white/30" />
+  return <Minus className="size-3.5 shrink-0 text-white/50" />
 }

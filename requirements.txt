@@ -9,7 +9,8 @@ groq>=0.11
 python-dotenv>=1.0
 
 # --- Local text-to-speech (Kokoro ONNX, CPU, fully offline) -----------------
-kokoro-onnx>=0.6.0
+# 0.6+ requires Python <=3.13; 0.4.7 is the newest line that installs on 3.14
+kokoro-onnx>=0.4.4
 onnxruntime>=1.20.0
 
 # --- Audio capture + playback (CLI mic mode, wav I/O) -----------------------
@@ -27,6 +28,14 @@ pydantic>=2.0
 pymupdf>=1.24             # PDF text + geometry, used by the ATS parse audit
 pillow>=10.0
 pytesseract>=0.3.10       # ALSO needs the Tesseract *binary*; see SETUP.md
+
+# --- On-device speech-to-text (offline mode / cloud outage fallback) --------
+# faster-whisper small runs on CPU (int8); the model (~460 MB) is downloaded
+# on first offline use and cached by huggingface_hub.
+faster-whisper>=1.0
+
+# --- Tests -------------------------------------------------------------------
+pytest>=8.0
 
 # ---------------------------------------------------------------------------
 # Optional extras (not required, not installed by default)
